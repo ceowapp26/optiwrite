@@ -1,0 +1,88 @@
+[build]
+  command = "prisma generate && prisma migrate deploy && next build"
+  publish = ".next"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+[[plugins]]
+  package = "netlify-plugin-cache-nextjs"
+
+[build.environment]
+  NODE_VERSION = "20"
+  NEXT_USE_NETLIFY_EDGE = "true"
+
+[[edge_functions]]
+  function = "next-server"
+  path = "/*"
+
+# Dynamic route redirects
+[[redirects]]
+  from = "/shop/products/*"
+  to = "/.netlify/functions/shop/products/:splat"
+  status = 200
+  force = true
+  [redirects.query]
+    productId = ":productId"
+    shop = ":shop"
+    host = ":host"
+
+[[redirects]]
+  from = "/api/admin/models/*"
+  to = "/.netlify/functions/api/admin/models/:splat"
+  status = 200
+  force = true
+  [redirects.query]
+    modelId = ":modelId"
+    shop = ":shop"
+    host = ":host"
+
+[[redirects]]
+  from = "/api/admin/plans/*"
+  to = "/.netlify/functions/api/admin/plans/:splat"
+  status = 200
+  force = true
+  [redirects.query]
+    planId = ":planId"
+    shop = ":shop"
+    host = ":host"
+
+[[redirects]]
+  from = "/api/admin/users/*"
+  to = "/.netlify/functions/api/admin/users/:splat"
+  status = 200
+  force = true
+  [redirects.query]
+    userId = ":userId"
+    shop = ":shop"
+    host = ":host"
+
+# Generic API redirect for other routes
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+  force = true
+  [redirects.query]
+    shop = ":shop"
+    host = ":host"
+    code = ":code"
+
+# Redirect for google callback
+[[redirects]]
+  from = "/api/auth/google/callback"
+  to = "/.netlify/functions/api/auth/google/callback"
+  status = 200
+  force = true
+  [redirects.query]
+    state = ":state"
+    code = ":code"
+    scope = ":scope"
+    authuser = ":authuser"
+    prompt = ":prompt"
+
+# Fallback redirect for client-side routing
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

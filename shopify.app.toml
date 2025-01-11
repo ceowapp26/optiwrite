@@ -1,0 +1,47 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "6425f42a2336d07bbb166ae46854a4e6"
+name = "optiwrite"
+handle = "optiwrite"
+application_url = "https://bolivia-perfect-ecological-div.trycloudflare.com/"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = false
+dev_store_url = "ai-optiwrite.myshopify.com"
+include_config_on_deploy = true
+
+[access.admin]
+direct_api_mode = "online"
+embedded_app_direct_api_access = true
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_products,write_products,read_content,write_content,read_online_store_pages"
+
+[auth]
+redirect_urls = [
+  "https://bolivia-perfect-ecological-div.trycloudflare.com/",
+  "https://bolivia-perfect-ecological-div.trycloudflare.com/api/auth",
+  "https://bolivia-perfect-ecological-div.trycloudflare.com/api/auth/shopify/callback",
+  "https://bolivia-perfect-ecological-div.trycloudflare.com/callback",
+  "https://bolivia-perfect-ecological-div.trycloudflare.com/api/auth/shopify/exchange_token"
+]
+
+[webhooks]
+api_version = "2024-10"
+
+  [[webhooks.subscriptions]]
+  uri = "/api/webhooks"
+  compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
+
+[app_proxy]
+url = "https://lonely-into-foods-descending.trycloudflare.com/api/app_proxy"
+subpath = "optiwrite"
+prefix = "apps"
+
+[pos]
+embedded = true
+
+[app_preferences]
+url = "https://bolivia-perfect-ecological-div.trycloudflare.com/preferences"

@@ -1,0 +1,781 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model ShopToSession {
+  shopId    String
+  sessionId String         @unique
+  session   ShopifySession @relation("sessionShops", fields: [sessionId], references: [id], onDelete: Cascade)
+  shop      Shop           @relation("shopSessions", fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@id([shopId, sessionId])
+}
+
+model AssociatedUserToUsage {
+  associatedUserId BigInt
+  usageId          String
+  associatedUser   AssociatedUser @relation("associatedUserUsages", fields: [associatedUserId], references: [userId], onDelete: Cascade)
+  usage            Usage          @relation("usageAssociatedUsers", fields: [usageId], references: [id], onDelete: Cascade)
+
+  @@id([associatedUserId, usageId])
+}
+
+model AssociatedUserToSubscription {
+  associatedUserId BigInt
+  subscriptionId   String
+  associatedUser   AssociatedUser @relation("associatedUserSubscriptions", fields: [associatedUserId], references: [userId], onDelete: Cascade)
+  subscription     Subscription   @relation("subscriptionAssociatedUsers", fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@id([associatedUserId, subscriptionId])
+}
+
+model AssociatedUserToCreditPurchase {
+  associatedUserId BigInt
+  purchaseId       String
+  associatedUser   AssociatedUser  @relation("associatedUserPurchases", fields: [associatedUserId], references: [userId], onDelete: Cascade)
+  creditPurchase   CreditPurchase  @relation("purchaseAssociatedUsers", fields: [purchaseId], references: [id], onDelete: Cascade)
+
+  @@id([associatedUserId, purchaseId])
+}
+
+model ShopifySession {
+  id               String            @id
+  shop             String
+  state            String
+  isOnline         Boolean           @default(false)
+  scope            String?
+  expires          DateTime?
+  accessToken      String
+  apiKey           String
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  onlineAccessInfo OnlineAccessInfo? @relation("sessionAccessInfo")
+  shopInfo         ShopToSession?    @relation("sessionShops")
+}
+
+model OnlineAccessInfo {
+  id                  String          @id @default(uuid())
+  sessionId           String          @unique
+  expiresIn           Int
+  associatedUserScope String
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  associatedUser      AssociatedUser? @relation("accessInfoAssociatedUser")
+  session             ShopifySession  @relation("sessionAccessInfo", fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model AssociatedUser {
+  id                 String                       @id @default(uuid())
+  onlineAccessInfoId String?                      @unique
+  userId             BigInt                       @unique
+  firstName          String
+  lastName           String
+  email              String
+  accountOwner       Boolean
+  locale             String
+  collaborator       Boolean
+  emailVerified      Boolean
+  shopId             String?
+  createdAt          DateTime                     @default(now())
+  updatedAt          DateTime                     @updatedAt
+  onlineAccessInfo   OnlineAccessInfo?            @relation("accessInfoAssociatedUser", fields: [onlineAccessInfoId], references: [id])
+  shop               Shop?                        @relation("shopAssociatedUsers", fields: [shopId], references: [id])
+  subscriptions      AssociatedUserToSubscription[]    @relation("associatedUserSubscriptions")
+  creditPurchases    AssociatedUserToCreditPurchase[]  @relation("associatedUserPurchases")
+  usageRelation      AssociatedUserToUsage[]      @relation("associatedUserUsages")
+}
+
+model Shop {
+  id              String            @id @default(uuid())
+  name            String?           @unique
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  metadata        Json?
+  associatedUsers AssociatedUser[]  @relation("shopAssociatedUsers")
+  creditPurchases CreditPurchase[]  @relation("shopCreditPurchases")
+  discounts       DiscountToShop[]  @relation("shopDiscounts")
+  notifications   Notification[]    @relation("shopNotifications")
+  payments        Payment[]         @relation("shopPayments")
+  contents        Content[]         @relation("shopContents")
+  promotions      PromotionToShop[] @relation("shopPromotions")
+  sessions        ShopToSession[]   @relation("shopSessions")
+  subscriptions   Subscription[]    @relation("shopSubscriptions")
+  usages          Usage[]           @relation("shopUsages")
+}
+
+model Content {
+  id           String       @id @default(uuid())
+  shopId       String
+  contentId    String?
+  shopifyId    String?
+  title        String?
+  description  String?
+  input        Json?
+  output       Json?
+  metadata     Json?
+  tags         String?
+  status       ContentStatus @default(DRAFT)
+  category     ContentCategory?
+  version      Int         @default(1)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  lastEditedAt DateTime?
+  publishedAt  DateTime?
+  archivedAt   DateTime?
+  shop            Shop      @relation("shopContents", fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([shopId])
+  @@index([status])
+  @@index([category])
+  @@index([createdAt])
+}
+
+model Plan {
+  id            String            @id @default(cuid())
+  shopifyPlanId String?
+  billingType   BillingType       @default(SUBSCRIPTION)
+  name          SubscriptionPlan  @default(FREE)
+  description   String?
+  currency      String?
+  pricePerCredit Float
+  totalPrice     Float
+  creditAmount   Int
+  interval      Interval          @default(EVERY_30_DAYS)
+  trialDays     Int?              @default(0)
+  isActive      Boolean           @default(true)
+  cappedAmount  Int?
+  terms         String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  metadata      Json?
+  discounts     DiscountToPlan[]  @relation("planDiscounts")
+  feature       Feature?          @relation("planFeature")
+  promotions    PromotionToPlan[] @relation("planPromotions")
+  subscriptions Subscription[]    @relation("planSubscriptions")
+ 
+  @@index([shopifyPlanId])
+  @@unique([name])
+}
+
+model Feature {
+  id             String         @id @default(cuid())
+  name           String         @unique
+  description    String?
+  planId         String?        @unique
+  packageId      String?        @unique
+  aiFeatureId    String         @unique
+  crawlFeatureId String         @unique
+  metadata       Json?
+  aiAPI          AIFeature      @relation("featureAIAPI", fields: [aiFeatureId], references: [id], onDelete: Cascade)
+  crawlAPI       CrawlFeature   @relation("featureCrawlAPI", fields: [crawlFeatureId], references: [id], onDelete: Cascade)
+  creditPackage  CreditPackage? @relation("packageFeature", fields: [packageId], references: [id], onDelete: Cascade)
+  plan           Plan?          @relation("planFeature", fields: [planId], references: [id], onDelete: Cascade)
+}
+
+model CrawlFeature {
+  id            String   @id @default(cuid())
+  service       Service  @default(CRAWL_API)
+  requestLimits Int
+  creditLimits  Int
+  metadata      Json?
+  feature       Feature? @relation("featureCrawlAPI")
+}
+
+model AIFeature {
+  id            String   @id @default(cuid())
+  service       Service  @default(AI_API)
+  requestLimits Int
+  creditLimits  Int
+  tokenLimits   Int?
+  maxTokens     Int
+  inputTokens   Int?
+  outputTokens  Int?
+  totalTokens   Int?
+  RPM           Int
+  RPD           Int
+  TPM           Int
+  TPD           Int?
+  metadata      Json?
+  feature       Feature? @relation("featureAIAPI")
+}
+
+model Subscription {
+  id              String             @id @default(cuid())
+  shopId          String
+  shopifySubscriptionId String?
+  planId          String
+  status          SubscriptionStatus @default(ACTIVE)
+  usageId         String             @unique
+  startDate       DateTime           @default(now())
+  endDate         DateTime?
+  canceledAt      DateTime?
+  cancelReason    String?
+  creditBalance   Int                @default(0)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  metadata        Json?
+  shopifyChargeId String?
+  billingEvents   BillingEvent[]     @relation("subscriptionBillingEvents")
+  payments        Payment[]          @relation("subscriptionPayments")
+  plan            Plan               @relation("planSubscriptions", fields: [planId], references: [id])
+  shop            Shop               @relation("shopSubscriptions", fields: [shopId], references: [id])
+  usage           Usage              @relation("subscriptionUsage", fields: [usageId], references: [id], onDelete: Cascade)
+  associatedUsers   AssociatedUserToSubscription[]    @relation("subscriptionAssociatedUsers")
+
+  @@index([shopId, status])
+  @@index([shopifyChargeId])
+}
+
+model CreditPackage {
+  id             String               @id @default(cuid())
+  name           String               @unique
+  pricePerCredit Float
+  isCustom       Boolean              @default(false)
+  totalPrice     Float
+  creditAmount   Int
+  currency       String?
+  description    String?
+  isActive       Boolean              @default(true)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  metadata       Json?
+  purchases      CreditPurchase[]     @relation("packagePurchases")
+  discounts      DiscountToPackage[]  @relation("packageDiscounts")
+  feature        Feature?             @relation("packageFeature")
+  promotions     PromotionToPackage[] @relation("packagePromotions")
+}
+
+model CreditPurchase {
+  id               String         @id @default(cuid())
+  shopId           String
+  creditPackageId  String
+  purchaseSnapshot Json
+  createdAt        DateTime       @default(now())
+  metadata         Json?
+  updatedAt        DateTime       @default(now()) @updatedAt
+  shopifyPurchaseId   String?     
+  status           PackageStatus  @default(ACTIVE)
+  usageId          String         @unique
+  paymentId        String?        @unique
+  billingEvents    BillingEvent[] @relation("purchaseBillingEvents")
+  creditPackage    CreditPackage  @relation("packagePurchases", fields: [creditPackageId], references: [id])
+  payment          Payment?       @relation("purchasePayment", fields: [paymentId], references: [id])
+  shop             Shop           @relation("shopCreditPurchases", fields: [shopId], references: [id], onDelete: Cascade)
+  usage            Usage          @relation("purchaseUsage", fields: [usageId], references: [id], onDelete: Cascade)
+  associatedUsers  AssociatedUserToCreditPurchase[]  @relation("purchaseAssociatedUsers")
+
+  @@index([shopId, status])
+  @@index([shopifyPurchaseId])
+}
+
+model Usage {
+  id              String                  @id @default(cuid())
+  shopId          String
+  date            DateTime                @default(now())
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @default(now())
+  metadata        Json?
+  associatedUsers AssociatedUserToUsage[] @relation("usageAssociatedUsers")
+  creditPurchase  CreditPurchase?         @relation("purchaseUsage")
+  serviceUsage    ServiceUsage?           @relation("usageServiceUsage")
+  subscription    Subscription?           @relation("subscriptionUsage")
+  shop            Shop                    @relation("shopUsages", fields: [shopId], references: [id], onDelete: Cascade)
+  totalCredits           Int?
+  totalCreditsUsed       Int?
+  totalRemainingCredits  Int?
+
+  @@index([shopId])
+  @@index([createdAt])
+  @@index([updatedAt])
+}
+
+model ServiceUsage {
+  id                String            @id @default(cuid())
+  usageId           String            @unique
+  crawlUsageId      String            @unique
+  aiUsageId         String            @unique
+  metadata          Json?
+  aiUsageDetails    AIUsageDetails    @relation("serviceAIUsage", fields: [aiUsageId], references: [id], onDelete: Cascade)
+  crawlUsageDetails CrawlUsageDetails @relation("serviceCrawlUsage", fields: [crawlUsageId], references: [id], onDelete: Cascade)
+  usage             Usage             @relation("usageServiceUsage", fields: [usageId], references: [id], onDelete: Cascade)
+
+  @@index([usageId])
+}
+
+model CrawlUsageDetails {
+  id                     String        @id @default(cuid())
+  service                Service       @default(CRAWL_API)
+  totalRequests          Int?
+  totalRemainingRequests Int?
+  totalRequestsUsed      Int?
+  totalCredits           Int?
+  totalCreditsUsed       Int?
+  totalRemainingCredits  Int?
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+  metadata               Json?
+  serviceUsage           ServiceUsage? @relation("serviceCrawlUsage")
+
+  @@index([updatedAt])
+}
+
+model AIUsageDetails {
+  id                         String        @id @default(cuid())
+  service                    Service       @default(AI_API)
+  modelName                  ModelName
+  inputTokensCount           Int
+  outputTokensCount          Int
+  requestsPerMinuteLimit     Int?
+  requestsPerDayLimit        Int?
+  remainingRequestsPerMinute Int?
+  remainingRequestsPerDay    Int?
+  resetTimeForMinuteRequests DateTime?
+  resetTimeForDayRequests    DateTime?
+  tokensConsumedPerMinute    Int
+  tokensConsumedPerDay       Int?
+  totalRequests              Int?
+  totalRemainingRequests     Int?
+  totalRequestsUsed          Int?
+  totalTokens                Int?
+  totalRemainingTokens       Int?
+  totalTokensUsed            Int?
+  totalCredits               Int?
+  totalCreditsUsed           Int?
+  totalRemainingCredits      Int?
+  createdAt                  DateTime      @default(now())
+  updatedAt                  DateTime      @updatedAt
+  lastTokenUsageUpdateTime   DateTime      @default(now())
+  metadata                   Json?
+  serviceUsage               ServiceUsage? @relation("serviceAIUsage")
+
+  @@index([lastTokenUsageUpdateTime])
+}
+
+model Payment {
+  id                   String          @id @default(cuid())
+  shopId               String
+  subscriptionId       String?
+  billingType          BillingType
+  amount               Float
+  adjustedAmount       Float?
+  currency             String
+  status               PaymentStatus
+  billingPeriodStart   DateTime?
+  billingPeriodEnd     DateTime?
+  shopifyTransactionId String?         @unique
+  refundId             String?
+  refundReason         String?
+  metadata             Json?
+  updatedAt            DateTime        @updatedAt
+  billingEvents        BillingEvent[]      @relation("paymentBillingEvents")
+  creditPurchase       CreditPurchase? @relation("purchasePayment")
+  shop                 Shop            @relation("shopPayments", fields: [shopId], references: [id], onDelete: Cascade)
+  subscription         Subscription?   @relation("subscriptionPayments", fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([shopId, status])
+  @@index([subscriptionId])
+  @@index([shopifyTransactionId])
+}
+
+model AIModel {
+  id           String    @id @default(cuid())
+  name         ModelName @unique
+  version      String
+  description  String?
+  inputTokens  Int
+  outputTokens Int
+  maxTokens    Int?
+  RPM          Int
+  RPD          Int
+  TPM          Int?
+  TPD          Int?
+  metadata     Json?
+}
+
+model BillingEvent {
+  id               String             @id @default(cuid())
+  paymentId        String?
+  subscriptionId   String?
+  creditPurchaseId String?
+  type             BillingEventType
+  amount           Float
+  description      String?
+  startDate        DateTime           @default(now())
+  endDate          DateTime?
+  promotionId      String?
+  discountId       String?
+  status           BillingEventStatus @default(PENDING)
+  appliedAmount    Float?
+  failureReason    String?
+  metadata         Json?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  payment          Payment?           @relation("paymentBillingEvents", fields: [paymentId], references: [id], onDelete: Cascade)
+  creditPurchase   CreditPurchase?    @relation("purchaseBillingEvents", fields: [creditPurchaseId], references: [id], onDelete: Cascade)
+  discount         Discount?          @relation("discountBillingEvents", fields: [discountId], references: [id])
+  promotion        Promotion?         @relation("promotionBillingEvents", fields: [promotionId], references: [id])
+  subscription     Subscription?      @relation("subscriptionBillingEvents", fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@index([subscriptionId])
+  @@index([creditPurchaseId])
+  @@index([status])
+  @@index([startDate, endDate])
+}
+
+model Promotion {
+  id            String               @id @default(cuid())
+  code          String
+  name          String
+  description   String?
+  type          PromotionType
+  value         Float
+  unit          PromotionUnit
+  validFrom     DateTime             @default(now())
+  validUntil    DateTime?
+  maxUses       Int?
+  usedCount     Int                  @default(0)
+  isActive      Boolean              @default(true)
+  appliedToAll  Boolean              @default(false)
+  appliedToAllPackages Boolean      @default(false)
+  appliedToAllPlans Boolean         @default(false)
+  metadata      Json?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  billingEvents BillingEvent[]       @relation("promotionBillingEvents")
+  packages      PromotionToPackage[] @relation("promotionPackages")
+  plans         PromotionToPlan[]    @relation("promotionPlans")
+  shops         PromotionToShop[]    @relation("promotionShops")
+
+  @@index([isActive])
+  @@index([validFrom, validUntil])
+}
+
+model Discount {
+  id            String              @id @default(cuid())
+  code          String
+  name          String
+  description   String?
+  type          DiscountType
+  value         Float
+  unit          DiscountUnit
+  validFrom     DateTime            @default(now())
+  validUntil    DateTime?
+  maxUses       Int?
+  usedCount     Int                 @default(0)
+  isActive      Boolean             @default(true)
+  appliedToAll  Boolean             @default(false)
+  appliedToAllPackages Boolean      @default(false)
+  appliedToAllPlans Boolean         @default(false)
+  minimumAmount Float?
+  maximumAmount Float?
+  metadata      Json?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  billingEvents BillingEvent[]      @relation("discountBillingEvents")
+  packages      DiscountToPackage[] @relation("discountPackages")
+  plans         DiscountToPlan[]    @relation("discountPlans")
+  shops         DiscountToShop[]    @relation("discountShops")
+
+  @@index([isActive])
+  @@index([validFrom, validUntil])
+}
+
+model PromotionToShop {
+  promotionId String
+  shopId      String
+  promotion   Promotion @relation("promotionShops", fields: [promotionId], references: [id], onDelete: Cascade)
+  shop        Shop      @relation("shopPromotions", fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@id([promotionId, shopId])
+  @@index([shopId])
+}
+
+model PromotionToPlan {
+  promotionId String
+  planId      String
+  plan        Plan      @relation("planPromotions", fields: [planId], references: [id], onDelete: Cascade)
+  promotion   Promotion @relation("promotionPlans", fields: [promotionId], references: [id], onDelete: Cascade)
+
+  @@id([promotionId, planId])
+  @@index([planId])
+}
+
+model PromotionToPackage {
+  promotionId   String
+  packageId     String
+  creditPackage CreditPackage @relation("packagePromotions", fields: [packageId], references: [id], onDelete: Cascade)
+  promotion     Promotion     @relation("promotionPackages", fields: [promotionId], references: [id], onDelete: Cascade)
+
+  @@id([promotionId, packageId])
+  @@index([packageId])
+}
+
+model DiscountToShop {
+  discountId String
+  shopId     String
+  discount   Discount @relation("discountShops", fields: [discountId], references: [id], onDelete: Cascade)
+  shop       Shop     @relation("shopDiscounts", fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@id([discountId, shopId])
+  @@index([shopId])
+}
+
+model DiscountToPlan {
+  discountId String
+  planId     String
+  discount   Discount @relation("discountPlans", fields: [discountId], references: [id], onDelete: Cascade)
+  plan       Plan     @relation("planDiscounts", fields: [planId], references: [id], onDelete: Cascade)
+
+  @@id([discountId, planId])
+  @@index([planId])
+}
+
+model DiscountToPackage {
+  discountId    String
+  packageId     String
+  discount      Discount      @relation("discountPackages", fields: [discountId], references: [id], onDelete: Cascade)
+  creditPackage CreditPackage @relation("packageDiscounts", fields: [packageId], references: [id], onDelete: Cascade)
+
+  @@id([discountId, packageId])
+  @@index([packageId])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  shopId    String
+  type      NotificationType
+  title     String
+  message   String
+  link      String?
+  isRead    Boolean          @default(false)
+  metadata  Json?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  expiresAt DateTime?
+  shop      Shop             @relation("shopNotifications", fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([shopId, isRead])
+  @@index([createdAt])
+}
+
+model AdminSettings {
+  id                 String   @id @default(cuid())
+  maintenanceMode    Boolean  @default(false)
+  systemAnnouncement String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model FeatureFlag {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  isEnabled   Boolean  @default(false)
+  percentage  Int      @default(100)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model SystemMetrics {
+  id              String   @id @default(cuid())
+  totalUsers      Int      @default(0)
+  activeUsers     Int      @default(0)
+  totalShops      Int      @default(0)
+  totalRevenue    Float    @default(0)
+  apiUsage        Int      @default(0)
+  averageResponse Float?
+  date            DateTime @unique @default(now())
+}
+
+model WebhookLog {
+  id        String   @id @default(cuid())
+  topic     String
+  shopId    String
+  payload   Json
+  createdAt DateTime @default(now())
+}
+
+model WebhookQueue {
+  id          String    @id @default(cuid())
+  topic       String
+  shop        String
+  payload     Json
+  status      String    @default("pending")
+  attempts    Int       @default(0)
+  error       String?
+  createdAt   DateTime  @default(now())
+  processedAt DateTime?
+
+  @@index([status, attempts])
+  @@index([shop])
+}
+
+enum Role {
+  user
+  admin
+}
+
+enum SubscriptionPlan {
+  FREE
+  STANDARD
+  PRO
+  ULTIMATE
+}
+
+enum Interval {
+  EVERY_30_DAYS
+  ANNUAL
+}
+
+enum Service {
+  AI_API
+  CRAWL_API
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELLED
+  FROZEN
+  EXPIRED
+}
+
+enum PromotionUnit {
+  PERCENTAGE
+  AMOUNT
+  CREDITS
+  DAYS
+  REQUESTS
+  TOKENS
+}
+
+enum DiscountUnit {
+  PERCENTAGE
+  AMOUNT
+  CREDITS
+  REQUESTS
+  TOKENS
+}
+
+enum BillingType {
+  SUBSCRIPTION
+  PAY_AS_YOU_GO
+  ONE_TIME
+}
+
+enum Package {
+  SMALL
+  MEDIUM
+  LARGE
+  ENTERPRISE
+  CUSTOM
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum PackageStatus {
+  ACTIVE
+  CANCELLED
+  FROZEN
+  EXPIRED
+  PAST_DUE
+}
+
+enum BillingEventType {
+  PROMOTION
+  DISCOUNT
+  CREDIT
+  REFUND
+  ADJUSTMENT
+}
+
+enum BillingEventStatus {
+  PENDING
+  APPLIED
+  FAILED
+  REVERSED
+  EXPIRED
+}
+
+enum PromotionType {
+  PERCENTAGE
+  FIXED_AMOUNT
+  FREE_TRIAL
+  USAGE_BOOST
+  CREDIT_BONUS
+  TIME_EXTENSION
+  TIER_UPGRADE
+  EARLY_ADAPTER
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+  VOLUME
+  LOYALTY
+  SEASONAL
+  REFERRAL
+  EARLY_ADAPTER
+  BUNDLE
+}
+
+enum NotificationType {
+  SYSTEM
+  BILLING
+  USAGE_ALERT
+  FEATURE_UPDATE
+  SECURITY
+  MAINTENANCE
+  PAYMENT
+  SUBSCRIPTION
+  API_LIMIT
+}
+
+enum ContentStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ContentCategory {
+  BLOG
+  ARTICLE
+  PRDUCT
+}
+
+enum ModelName {
+  gpt_4
+  gpt_4_32k
+  gpt_4_1106_preview
+  gpt_4_0125_preview
+  gpt_4_turbo
+  gpt_4_turbo_2024_04_09
+  gpt_3_5_turbo
+  gpt_3_5_turbo_16k
+  gpt_3_5_turbo_1106
+  gpt_3_5_turbo_0125
+  gemini_1_0_pro
+  gemini_1_5_pro
+  gemini_1_5_flash
+  dall_e_3
+  gpt_4o
+  gpt_4o_2024_05_13
+  gpt_4o_mini
+  gpt_4o_mini_2024_07_18
+  claude_3_5_sonnet_20240620
+  claude_3_opus_20240229
+  claude_3_sonnet_20240229
+  claude_3_haiku_20240307
+}

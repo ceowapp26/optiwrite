@@ -1,0 +1,34 @@
+Tính năng bố sung 
+
+Theme change
+
+Thanh toán pay as you go(apply discount, promotion, early adapter strategy)
+
+Free trials gói pro 1 tháng 
+
+Support page
+
+
+{
+    "data": {
+        "title": "AI-Powered Doc2Product App - Streamline Shopify Product Management | Doc2Product",
+        "description": "Struggling with converting documents into Shopify products? Doc2Product app, with its AI rewriting capabilities, turns any document or link into a professional product listing instantly. Import files directly from Google Drive or any public link, freeing you to focus on business growth. Experience AI-powered rewriting for fascinating product listings, seamless Shopify integration, and direct Google Drive import. Don't let document management impede your progress. Transform your Shopify product management with Doc2Product now!",
+        "category": "Shopify Apps > Product Management",
+        "price": 29.99,
+        "costPerItem": 19.99,
+        "profit": 10,
+        "weight": 0.01
+    },
+    "tokens": {
+        "input_tokens": 2069,
+        "output_tokens": 172
+    },
+    "rateLimits": {
+        "limitPerMinute": 1000,
+        "remainingPerMinute": 999,
+        "resetPerMinute": 1734864960000,
+        "limitPerDay": 1000,
+        "remainingPerDay": 993,
+        "resetPerDay": 1734912000000
+    }
+}

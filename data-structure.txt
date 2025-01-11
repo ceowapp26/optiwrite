@@ -1,0 +1,46 @@
+data structure
+
+blog posts:
+
+title
+
+feartured image
+
+pageTitle
+
+metaDescription
+
+author
+
+tags
+
+images:
+
+
+  interface IProduct {
+    body_html: string;
+    created_at: string;
+    handle: string;
+    id: number;
+    image: IProductImage;
+    images: IProductImage[];
+    options: IProductOption[];
+    product_type: string;
+    published_at: string;
+    published_scope: string;
+    tags: string;
+    template_suffix: string | null;
+    title: string;
+    metafields_global_title_tag?: string;
+    metafields_global_description_tag?: string;
+    updated_at: string;
+    variants: IProductVariant[];
+    vendor: string;
+    status: 'active' | 'archived' | 'draft';
+  }
+
+
+
+
+products:
+

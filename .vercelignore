@@ -1,0 +1,25 @@
+# .vercelignore
+
+# Node modules
+node_modules
+
+# Git repository metadata
+.git
+
+# Next.js build cache
+.next/cache
+
+# Next.js development static files
+.next/static/development
+
+# Log files
+*.log
+
+# Markdown files
+*.md
+
+# Environment variables files
+.env
+.env.development.local
+.env.local
+.env.production

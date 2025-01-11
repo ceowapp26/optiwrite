@@ -1,0 +1,12 @@
+image: node:20
+
+stages:
+  - deploy
+
+deploy_to_vercel:
+  stage: deploy
+  only:
+    - main  
+  script:
+    - npm install -g vercel  # Install Vercel CLI
+    - vercel --token $VERCEL_TOKEN --prod  # Deploy to Vercel using the token

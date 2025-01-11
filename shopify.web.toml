@@ -1,0 +1,10 @@
+name = "doc2product-latest"
+# type = "frontend"
+roles = ["frontend", "backend"]
+webhooks_path = "/api/webhooks"
+
+# auth_callback_path = ["/api/auth/shopify/callback", "/api/auth", "/api/auth/callback"]
+
+[commands]
+dev = "npm run dev"
+build = "npm run build"
