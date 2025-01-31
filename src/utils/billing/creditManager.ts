@@ -1,4 +1,4 @@
-import { Prisma, PrismaClient, Shop, Usage, Service, PaymentStatus, BillingType, BillingEventType, ModelName, PackageStatus, CreditPackage, NotificationType } from '@prisma/client';
+import { Prisma, PrismaClient, Shop, Usage, Service, PaymentStatus, BillingType, BillingEventType, ModelName, PackageStatus, creditPurchase, CreditPurchase, Payment, NotificationType } from '@prisma/client';
 import { ShopifySessionManager, ModelManager } from '@/utils/storage';
 import { DateTime } from 'luxon';
 import { prisma } from '@/lib/prisma';
@@ -7,21 +7,189 @@ import { CreditPaymentInfo } from '@/types/billing';
 import { BillingOperationsService } from './billingOperationsService';
 import emailService, { EmailServiceError, EmailResponse } from '@/utils/email/emailService';
 
+interface RateLimit {
+  rpm: number;
+  rpd: number;
+  tpm: number;
+  tpd: number;
+}
+
+interface AIFeature {
+  requestLimits: number;
+  tokenLimits: number;
+  maxTokens: number;
+  rateLimit: RateLimit;
+}
+
+interface CrawlFeature {
+  requestLimits: number;
+}
+
+interface Features {
+  ai: AIFeature;
+  crawl: CrawlFeature;
+}
+
+interface PackageInfo {
+  id: string;
+  name: string;
+  description: string;
+  creditAmount: number;
+  pricePerCredit: number;
+  totalPrice: number;
+  currency: string;
+  isCustom: boolean;
+}
+
+interface PaymentInfo {
+  id: string;
+  status: string;
+  amount: number;
+  adjustedAmount: number;
+  currency: string;
+  billingType: string;
+  createdAt: Date;
+  shopifyTransactionId: string;
+}
+
+interface UsageDetails {
+  creditsUsed: number;
+}
+
+interface PackageDetail {
+  purchaseId: string;
+  status: string;
+  package: PackageInfo;
+  features: Features;
+  usage: UsageDetails;
+  payment: PaymentInfo | null;
+  billingAdjustments: any;
+  shopifyOrderId: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface PurchaseDetails {
+  totalActivePackages: number;
+  packages: PackageDetail[];
+  totalCreditsAvailable: number;
+}
+
+interface ExpiredPackageFilters {
+  startDate?: Date;
+  endDate?: Date;
+  limit?: number;
+  offset?: number;
+  packageIds?: string[];
+  creditPackageIds?: string[];
+  minCreditsUsed?: number;
+  maxCreditsUsed?: number;
+  sortBy?: 'createdAt' | 'expiredAt' | 'updatedAt';
+  sortOrder?: 'asc' | 'desc';
+}
+
 export class CreditManager {
   private static readonly TRANSACTION_TIMEOUT = 50000;
   private static readonly MAX_WAIT = 5000;
 
-  private static readonly CREDIT_CONVERSION = {
-    [Service.AI_API]: 0.1, 
-    [Service.CRAWL_API]: 1
+  static readonly Errors = {
+    SHOP_NOT_FOUND: 'Shop not found',
+    PACKAGE_NOT_FOUND: 'Credit package not found',
+    PURCHASE_NOT_FOUND: 'Credit purchase not found',
+    PAYMENT_NOT_FOUND: 'No previous payment found for subscription',
+    INVALID_PLAN: 'Invalid subscription plan',
+    TRANSACTION_FAILED: 'Transaction failed',
+    PAYMENT_FAILED: 'Payment processing failed',
+    INVALID_DATES: 'Invalid subscription dates',
+    MISSING_PARAMETERS: 'Missing required parameters',
+    NO_EMAIL_PROVIDED: 'No email provided for purchase notification',
+  } as const;
+
+  private static readonly packageInclude = {
+    feature: {
+      include: {
+        aiAPI: true, 
+        crawlAPI: true
+      },
+    },
+    promotions: {
+      include: {
+        promotion: true, 
+      },
+    },
+    discounts: {
+      include: {
+        discount: true, 
+      },
+    },
+    purchases: {
+      include: {
+        shop: true,
+        payment: true,
+        billingEvents: true,
+        usage: {
+          include: {
+            serviceUsage: {
+              include: {
+                aiUsageDetails: true,
+                crawlUsageDetails: true
+              }
+            }
+          }
+        }
+      }
+    }
   };
 
-  private static calculateCreditsForService(service: Service, totalCredits: number): number {
-    const conversionRate = this.CREDIT_CONVERSION[service];
-    if (conversionRate === undefined) {
-      throw new Error(`Service ${service} not found in CREDIT_CONVERSION.`);
+  private static readonly purchaseInclude = {
+    shop: true,
+    payment: true,
+    billingEvents: true,
+    creditPackage: {
+      include: {
+        feature: {
+          include: {
+            aiAPI: true, 
+            crawlAPI: true
+          }
+        }
+      }
+    },
+    usage: {
+      include: {
+        serviceUsage: {
+          include: {
+            aiUsageDetails: true,
+            crawlUsageDetails: true
+          }
+        }
+      }
     }
-    return totalCredits * conversionRate;
+  };
+
+  private static readonly paymentInclude = {
+    billingEvents: true
+  };
+
+  private static async executeTransaction<T>(
+    operation: (tx: PrismaClient) => Promise<T>,
+    errorMessage: string
+  ): Promise<T> {
+    try {
+      return await prisma.$transaction(operation, {
+        timeout: this.TRANSACTION_TIMEOUT,
+        maxWait: this.MAX_WAIT,
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable
+      });
+    } catch (error) {
+      console.error(`${errorMessage}:`, error);
+      throw new Error(`${errorMessage}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private static isValidEmail(email: string): boolean {
+    const emailRegex = /^(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])$/i;
+    return emailRegex.test(email);
   }
 
   static async createStandardCreditPackages() {
@@ -72,8 +240,8 @@ export class CreditManager {
       }
     });
   }
-
-   static async getPurchaseDetails(shopName: string) {
+  
+  static async getPurchaseDetails(shopName: string): Promise<PurchaseDetails | null> {
     try {
       const activePackages = await this.getActivePackages(shopName);
       if (!activePackages.length) return null;
@@ -98,6 +266,7 @@ export class CreditManager {
               ai: {
                 requestLimits: purchase.creditPackage.feature?.aiAPI.requestLimits,
                 tokenLimits: purchase.creditPackage.feature?.aiAPI.tokenLimits,
+                creditLimits: purchase.creditPackage.feature?.aiAPI.creditLimits,
                 maxTokens: purchase.creditPackage.feature?.aiAPI.maxTokens,
                 rateLimit: {
                   rpm: purchase.creditPackage.feature?.aiAPI.RPM,
@@ -107,6 +276,7 @@ export class CreditManager {
                 },
               },
               crawl: {
+                creditLimits: purchase.creditPackage.feature?.crawlAPI.creditLimits,
                 requestLimits: purchase.creditPackage.feature?.crawlAPI.requestLimits,
               },
             },
@@ -123,8 +293,8 @@ export class CreditManager {
             } : null,
             billingAdjustments,
             shopifyOrderId: purchase.shopifyOrderId,
-            createdAt: purchase.creditPackage.createdAt,
-            updatedAt: purchase.creditPackage.updatedAt,
+            createdAt: purchase.createdAt,
+            updatedAt: purchase.updatedAt,
           };
         })
       );
@@ -148,7 +318,8 @@ export class CreditManager {
       },
       orderBy: {
         creditAmount: 'asc'
-      }
+      },
+      include: this.packageInclude
     });
   }
 
@@ -162,7 +333,7 @@ export class CreditManager {
     appliedDiscounts: Discount[];
   }> {
     const creditPackage = await this.getPackageById(packageId);
-    if (!creditPackage) throw new Error('Credit package not found');
+    if (!creditPackage) throw new Error(this.Errors.PACKAGE_NOT_FOUND);
     const initialPrice = creditPackage.totalPrice;
     const promotions = await BillingOperationsService.findApplicablePromotions(shopId, undefined, packageId);
     const discounts = await BillingOperationsService.findApplicableDiscounts(shopId, undefined, packageId);
@@ -179,18 +350,25 @@ export class CreditManager {
     shopName: string,
     creditPackageId: string,
     shopifyChargeId: string,
-    email: string,
-  ) {
+    email: string
+  ): Promise<{
+    creditPurchase: CreditPurchase;
+    payment: Payment;
+  }> {
     try {
-      const now = new Date();
+      const now = DateTime.utc();
       const shop = await ShopifySessionManager.findShopByName(shopName);
-      if (!shop) throw new Error('Shop not found');
+      if (!shop) throw new Error(this.Errors.SHOP_NOT_FOUND);
       const creditPackage = await this.getPackageById(creditPackageId);
-      if (!creditPackage) throw new Error('Credit package not found');
+      if (!creditPackage) throw new Error(this.Errors.PACKAGE_NOT_FOUND);
       const associatedUsers = await ShopifySessionManager.findCurrentAssociatedUsersByShop(shopName);
-      const associatedUser = await ShopifySessionManager.findAssociatedUserByEmail(email);
-      if (!associatedUser?.userId) {
-        throw new Error(`Associated user not found for email: ${email}`);
+      const isEmailValid = email && this.isValidEmail(email);
+      let associatedUser;
+      if (isEmailValid) {
+        associatedUser = await ShopifySessionManager.findAssociatedUserByEmail(email);
+        if (!associatedUser?.userId) {
+          throw new Error(`Associated user not found for email: ${email}`);
+        }
       }
       const model = await ModelManager.getLatestModel();
       const { id, shopId, ...purchaseSnapshot } = creditPackage;
@@ -199,13 +377,15 @@ export class CreditManager {
         const usage = await tx.usage.create({
           data: {
             shop: { connect: { id: shop.id } },
-            associatedUsers: {
-              create: associatedUsers.map(user => ({
-                associatedUser: {
-                  connect: { userId: user.userId }
-                }
-              }))
-            },
+            ...(associatedUsers?.length > 0 && {
+              associatedUsers: {
+                create: associatedUsers.map(user => ({
+                  associatedUser: {
+                    connect: { userId: user.userId }
+                  }
+                }))
+              },
+            }),
             serviceUsage: {
               create: {
                 aiUsageDetails: {
@@ -221,16 +401,17 @@ export class CreditManager {
                     requestsPerDayLimit: creditPackage?.feature?.aiAPI?.RPD ?? 0,
                     remainingRequestsPerMinute: creditPackage?.feature?.aiAPI?.RPM ?? 0,
                     remainingRequestsPerDay: creditPackage?.feature?.aiAPI?.RPD ?? 0,
-                    resetTimeForMinuteRequests: now,
-                    resetTimeForDayRequests: now,
+                    resetTimeForMinuteRequests: now.toJSDate(),
+                    resetTimeForDayRequests: now.toJSDate(),
                     tokensConsumedPerMinute: 0,
                     tokensConsumedPerDay: 0,
                     totalTokens: creditPackage?.feature?.aiAPI?.totalTokens ?? 0,
+                    totalRemainingTokens: creditPackage?.feature?.aiAPI?.totalTokens ?? 0,
                     totalTokensUsed: 0,
-                    totalCredits: this.calculateCreditsForService(Service.AI_API, plan?.creditAmount),
+                    totalCredits: creditPackage?.feature?.aiAPI?.creditLimits ?? 0,
                     totalCreditsUsed: 0,
-                    totalRemainingCredits: this.calculateCreditsForService(Service.AI_API, plan?.creditAmount),
-                    lastTokenUsageUpdateTime: now
+                    totalRemainingCredits: creditPackage?.feature?.aiAPI?.creditLimits ?? 0,
+                    lastTokenUsageUpdateTime: now.toJSDate()
                   }
                 },
                 crawlUsageDetails: {
@@ -239,9 +420,9 @@ export class CreditManager {
                     totalRequests: creditPackage?.feature?.crawlAPI?.requestLimits ?? 0,
                     totalRemainingRequests: creditPackage?.feature?.crawlAPI?.requestLimits ?? 0,
                     totalRequestsUsed: 0,
-                    totalCredits: this.calculateCreditsForService(Service.CRAWL_API, plan?.creditAmount),
+                    totalCredits: creditPackage?.feature?.crawlAPI?.creditLimits ?? 0,
                     totalCreditsUsed: 0,
-                    totalRemainingCredits: this.calculateCreditsForService(Service.CRAWL_API, plan?.creditAmount),
+                    totalRemainingCredits: creditPackage?.feature?.crawlAPI?.creditLimits ?? 0,
                   }
                 }
               }
@@ -256,14 +437,17 @@ export class CreditManager {
             purchaseSnapshot,
             shopifyPurchaseId: shopifyChargeId,
             status: PackageStatus.ACTIVE,
-            associatedUsers: {
-              create: {
-                associatedUser: {
-                  connect: { userId: associatedUser.userId }
+            ...(associatedUser?.userId && isEmailValid && {
+              associatedUsers: {
+                create: {
+                  associatedUser: {
+                    connect: { userId: associatedUser.userId }
+                  }
                 }
               }
-            },
-          }
+            }),
+          },
+          include: this.purchaseInclude
         });
         for (const promotion of appliedPromotions) {
           await tx.billingEvent.create({
@@ -280,7 +464,6 @@ export class CreditManager {
             data: { usedCount: { increment: 1 } }
           });
         }
-
         for (const discount of appliedDiscounts) {
           await tx.billingEvent.create({
             data: {
@@ -306,7 +489,8 @@ export class CreditManager {
             billingType: BillingType.ONE_TIME,
             creditPurchase: { connect: { id: creditPurchase.id } },
             shopifyTransactionId: shopifyChargeId
-          }
+          },
+          include: this.paymentInclude
         });
         await tx.notification.create({
           data: {
@@ -316,7 +500,15 @@ export class CreditManager {
             message: `Thank you for purchasing the ${creditPackage?.name} package! Your package is now active, and you can start utilizing its features immediately. If you have any questions or need assistance, feel free to reach out to our support team.`,
           },
         });
-        await this.sendCreditsPurchased(creditPackage, shopName, email);
+        await this.sendCreditsPurchased(
+          {
+            ...creditPurchase,
+            payment
+          }, 
+          shopName, 
+          email, 
+          now
+        );
         return { creditPurchase, payment };
       }, {
         timeout: this.TRANSACTION_TIMEOUT,
@@ -342,11 +534,11 @@ export class CreditManager {
     try {
       const shop = await ShopifySessionManager.findShopByName(shopName);
       if (!shop) throw new Error('Shop not found');
-      const creditPackage = await this.getPackageById(creditPackageId);
-      if (!creditPackage) throw new Error('Credit package not found');
+      const creditPurchase = await this.getPackageById(creditPackageId);
+      if (!creditPurchase) throw new Error('Credit package not found');
       const associatedUsers = await ShopifySessionManager.findCurrentAssociatedUsersByShop(shopName);
       const model = await ModelManager.getLatestModel();
-      const { id, shopId, ...purchaseSnapshot } = creditPackage;
+      const { id, shopId, ...purchaseSnapshot } = creditPurchase;
       return await prisma.$transaction(async (tx) => {
         const usage = await tx.usage.create({
           data: {
@@ -387,7 +579,7 @@ export class CreditManager {
             shop: {
               connect: { id: shop.id }
             },
-            creditPackage: {
+            creditPurchase: {
               connect: { id: creditPackageId }
             },
             usage: {
@@ -404,7 +596,7 @@ export class CreditManager {
         const payment = await tx.payment.create({
           data: {
             shop: { connect: { id: shop.id } },
-            amount: creditPackage.totalPrice,
+            amount: creditPurchase.totalPrice,
             currency: 'USD',
             status: PaymentStatus.SUCCEEDED,
             BillingType: BillingType.ONE_TIME,
@@ -435,7 +627,7 @@ export class CreditManager {
       data: { status: PackageStatus.ACTIVE },
       include: {
         usage: true,
-        creditPackage: true,
+        creditPurchase: true,
       }
     });
   }
@@ -446,7 +638,7 @@ export class CreditManager {
       include: {
         shop: true,
         usage: true,
-        creditPackage: true,
+        creditPurchase: true,
       }
     });
   }
@@ -456,91 +648,70 @@ export class CreditManager {
       throw new Error('Invalid custom package data');
     }
     const packageName = `CUSTOM_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const aiRequests = Math.floor(paymentData.credits / 0.1); 
-    const crawlRequests = paymentData.credits;                
-    return await prisma.$transaction(async (tx) => {
-      const customPackage = await tx.creditPackage.create({
-        data: {
-          name: packageName,
-          creditAmount: paymentData?.credits,
-          pricePerCredit: paymentData?.price?.amount / paymentData?.credits,
-          currency: paymentData?.price?.currencyCode || 'USD',
-          totalPrice: paymentData?.price?.amount,
-          description: "Custom credit package",
-          isCustom: true,
-          isActive: true
-        }
+    const aiRequests = Math.floor(paymentData.credits / 0.1) * 0.5; 
+    const crawlRequests = paymentData.credits * 0.5;      
+    try {          
+      return await prisma.$transaction(async (tx) => {
+        const customPackage = await tx.creditPackage.create({
+          data: {
+            name: packageName,
+            creditAmount: paymentData?.credits,
+            pricePerCredit: paymentData?.price?.amount / paymentData?.credits,
+            currency: paymentData?.price?.currencyCode || 'USD',
+            totalPrice: paymentData?.price?.amount,
+            description: "Custom credit package",
+            isCustom: true,
+            isActive: true
+          }
+        });
+        const aiFeature = await tx.aIFeature.create({
+          data: {
+            service: Service.AI_API,
+            requestLimits: aiRequests,
+            tokenLimits: aiRequests * 1000,
+            creditLimits: paymentData.credits * 0.5,
+            maxTokens: 10000,
+            RPM: 10,
+            RPD: Math.min(aiRequests, 200),
+            TPM: 10000,
+            TPD: Math.min(aiRequests * 1000, 10000)
+          }
+        });
+        const crawlFeature = await tx.crawlFeature.create({
+          data: {
+            service: Service.CRAWL_API,
+            creditLimits: paymentData.credits * 0.5,
+            requestLimits: crawlRequests
+          }
+        });
+        await tx.feature.create({
+          data: {
+            name: `${packageName}_Feature`,
+            description: `Feature set for custom package ${packageName}`,
+            packageId: customPackage.id,
+            aiFeatureId: aiFeature.id,
+            crawlFeatureId: crawlFeature.id
+          }
+        });
+        return customPackage;
       });
-      const aiFeature = await tx.aIFeature.create({
-        data: {
-          service: Service.AI_API,
-          requestLimits: aiRequests,
-          tokenLimits: aiRequests * 1000,
-          maxTokens: 10000,
-          RPM: 10,
-          RPD: Math.min(aiRequests, 200),
-          TPM: 10000,
-          TPD: Math.min(aiRequests * 1000, 10000)
+    } catch (error) {
+      console.error('Custom package creation error:', error);
+      throw new Error('Failed to create custom package');
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        if (error.code === 'P2002') {
+          throw new Error(`Unique constraint failed: ${error.meta?.target}`);
         }
-      });
-      const crawlFeature = await tx.crawlFeature.create({
-        data: {
-          service: Service.CRAWL_API,
-          requestLimits: crawlRequests
-        }
-      });
-      await tx.feature.create({
-        data: {
-          name: `${packageName}_Feature`,
-          description: `Feature set for custom package ${packageName}`,
-          packageId: customPackage.id,
-          aiFeatureId: aiFeature.id,
-          crawlFeatureId: crawlFeature.id
-        }
-      });
-      return customPackage;
-    });
+      }
+      throw error;
+    }
   }
-  
-   static async getPackageByName(packageName: string) {
+
+  static async getPackageByName(packageName: string): Promise<CreditPackage | null> {
     try {
       const creditPackage = await prisma.creditPackage.findUnique({
         where: { name: packageName },
-        include: {
-          feature: {
-            include: {
-              aiAPI: true, 
-              crawlAPI: true
-            },
-          },
-          promotions: {
-            include: {
-              promotion: true, 
-            },
-          },
-          discounts: {
-            include: {
-              discount: true, 
-            },
-          },
-          purchases: {
-            include: {
-              shop: true,
-              payment: true,
-              billingEvents: true,
-              usage: {
-                include: {
-                  serviceUsage: {
-                    include: {
-                      aiUsageDetails: true,
-                      crawlUsageDetails: true
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
+        include: this.packageInclude
       });
       if (!creditPackage) {
         throw new Error('Package not found');
@@ -552,45 +723,11 @@ export class CreditManager {
     }
   }
 
-  static async getPackageById(id: string) {
+  static async getPackageById(id: string): Promise<CreditPackage | null> {
     try {
       const creditPackage = await prisma.creditPackage.findUnique({
         where: { id },
-        include: {
-          feature: {
-            include: {
-              aiAPI: true, 
-              crawlAPI: true
-            },
-          },
-          promotions: {
-            include: {
-              promotion: true, 
-            },
-          },
-          discounts: {
-            include: {
-              discount: true, 
-            },
-          },
-          purchases: {
-            include: {
-              shop: true,
-              payment: true,
-              billingEvents: true,
-              usage: {
-                include: {
-                  serviceUsage: {
-                    include: {
-                      aiUsageDetails: true,
-                      crawlUsageDetails: true
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
+        include: this.packageInclude
       });
       if (!creditPackage) {
         throw new Error('Package not found');
@@ -708,7 +845,7 @@ export class CreditManager {
       },
       include: {
         payment: true,
-        creditPackage: true
+        creditPurchase: true
       },
       orderBy: {
         createdAt: 'desc'
@@ -752,13 +889,100 @@ export class CreditManager {
         status: PackageStatus.ACTIVE
       },
       include: {
-        creditPackage: true,
+        creditPurchase: true,
         usages: true
       },
       orderBy: {
         createdAt: 'asc'
       }
     });
+  }
+
+  static async getActivePackages(shopName: string): Promise<creditPurchase[] | []> {
+    const shop = await ShopifySessionManager.findShopByName(shopName);
+    if (!shop) throw new Error('Shop not found');
+    return await prisma.creditPurchase.findMany({
+      where: {
+        shopId: shop.id,
+        status: PackageStatus.ACTIVE,
+      },
+      include: this.purchaseInclude,
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+  }
+
+  static async getExpiredPackages(
+    shopName: string, 
+    filters: ExpiredPackageFilters = {}
+  ): Promise<{ packages: CreditPurchase[]; total: number }> {
+    const shop = await ShopifySessionManager.findShopByName(shopName);
+    if (!shop) throw new Error('Shop not found');
+    const {
+      startDate,
+      endDate,
+      limit,
+      offset,
+      packageIds,
+      creditPackageIds,
+      minCreditsUsed,
+      maxCreditsUsed,
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = filters;
+    const where: Prisma.CreditPurchaseWhereInput = {
+      shopId: shop.id,
+      status: PackageStatus.EXPIRED,
+      ...(startDate && {
+        expiredAt: {
+          gte: startDate
+        }
+      }),
+      ...(endDate && {
+        expiredAt: {
+          lte: endDate
+        }
+      }),
+      ...(packageIds?.length && {
+        id: {
+          in: packageIds
+        }
+      }),
+      ...(creditPackageIds?.length && {
+        creditPackageId: {
+          in: creditPackageIds
+        }
+      }),
+      ...(minCreditsUsed !== undefined && {
+        usage: {
+          creditsUsed: {
+            gte: minCreditsUsed
+          }
+        }
+      }),
+      ...(maxCreditsUsed !== undefined && {
+        usage: {
+          creditsUsed: {
+            lte: maxCreditsUsed
+          }
+        }
+      })
+    };
+    const total = await prisma.creditPurchase.count({ where });
+    const packages = await prisma.creditPurchase.findMany({
+      where,
+      include: this.purchaseInclude,
+      orderBy: {
+        [sortBy]: sortOrder
+      },
+      ...(limit && { take: limit }),
+      ...(offset && { skip: offset })
+    });
+    return {
+      packages,
+      total
+    };
   }
 
   static async getPackageUsageDetails(usage: Usage) {
@@ -772,6 +996,9 @@ export class CreditManager {
         requestsUsed: aiUsage.totalRequestsUsed,
         tokensUsed: aiUsage.totalTokensUsed,
         remainingTokens: aiUsage.totalRemainingTokens,
+        totalCredits: aiUsage.totalCredits,
+        remainingCredits: aiUsage.totalRemainingCredits,
+        creditsUsed: aiUsage.totalCreditsUsed,
         rateLimit: {
           rpm: aiUsage.requestsPerMinuteLimit,
           rpd: aiUsage.requestsPerDayLimit,
@@ -785,8 +1012,10 @@ export class CreditManager {
         totalRequests: crawlUsage.totalRequests,
         remainingRequests: crawlUsage.totalRemainingRequests,
         requestsUsed: crawlUsage.totalRequestsUsed,
-      },
-      creditsUsed: usage.creditsUsed || 0,
+        totalCredits: crawlUsage.totalCredits,
+        remainingCredits: crawlUsage.totalRemainingCredits,
+        creditsUsed: crawlUsage.totalCreditsUsed,
+      }
     };
   }
 
@@ -811,28 +1040,34 @@ export class CreditManager {
     }, { promotions: [], discounts: [] });
   }
 
-  static async sendCreditsPurchased(creditPackage: CreditPackage, shopName: string, email: string): Promise<CreditPackage> {
-    if (!email) {
-      console.log('No email provided for subscription activation notification');
+  static async sendCreditsPurchased(purchase: creditPurchase, shopName: string, email: string, date: Date): Promise<void> {
+    const isEmailValid = email && this.isValidEmail(email);
+    if (!isEmailValid) {
+      console.log(this.Errors.NO_EMAIL_PROVIDED);
       return;
+    }
+    if (!purchase) {
+      throw new Error(this.Errors.PURCHASE_NOT_FOUND);
+      return null;
     }
     try {
       const emailData = {
         shopName: shopName,
-        packageName: creditPackage.name,
-        amount: creditPackage.totalPrice,
-        credits: creditPackage.creditAmount,
-        currency: creditPackage.currency,
-        billingDate: DateTime.now().toFormat('cccc, dd MMMM yyyy'),
+        packageName: purchase?.creditPackage?.name,
+        amount: purchase?.payment?.amount ?? purchase?.creditPackage?.totalPrice,
+        adjustedAmount: purchase?.payment?.adjustedAmount ?? 0,
+        credits: purchase?.creditPackage?.creditAmount,
+        currency: purchase?.creditPackage?.currency,
+        billingDate: date.toLocal().toFormat('cccc, dd MMMM yyyy'),
       };
       await emailService.initialize();
       await emailService.sendCreditsPurchased(email, emailData);
     } catch (error) {
-      console.error('Failed to send subscription activation email:', {
+      console.error('Failed to send package purchase email:', {
         error: error instanceof Error ? error.message : 'Unknown error',
         email,
         shopName,
-        packageName: creditPackage.name
+        packageName: purchase?.creditPackage?.name
       });
       if (error instanceof EmailServiceError) {
         switch (error.code) {
@@ -853,3 +1088,4 @@ export class CreditManager {
     }
   }
 }
+

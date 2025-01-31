@@ -44,11 +44,11 @@ import CreditCard from './CreditCard';
 import CreditDetails from './CreditDetails';
 import BillingCard from './BillingCard';
 import BillingDetails from './BillingDetails';
-import { subscriptionPlans, creditPackages, cancelReasons } from '@/constants/billing';
+import { DateTime } from 'luxon';
+import { subscriptionPlans, creditPackages, cancellationOptions, cancelReasons } from '@/constants/billing';
 import { CreditPaymentInfo } from '@/types/billing';
-import { Plan, DiscountType } from '@prisma/client';
+import { Plan, DiscountType, SubscriptionPlan, SubscriptionStatus } from '@prisma/client';
 import { motion } from 'framer-motion';
-
 
 const EarlyAdopterBanner = ({ discount }) => {
   if (!discount || discount?.type !== DiscountType.EARLY_ADAPTER) {
@@ -155,6 +155,7 @@ interface BannerHandles {
 
 export default function BillingPage({ session }: BillingPageProps) {
   const { state } = useGeneralContext();
+  const { shopifyUserEmail: email, shopName, shopifyOfflineAccessToken: accessToken } = session;
   const { setTheme: setNextTheme } = useTheme();
   const { currentStep, creditPaymentInfo, paymentType } = state;
   const { setPaymentType, setCurrentStep, setCreditPaymentInfo } = useGeneralActions();
@@ -167,9 +168,10 @@ export default function BillingPage({ session }: BillingPageProps) {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [promotion, setPromotion] = useState(null);
+  const [cancellationType, setCancellationType] = useState('end-of-cycle');
   const [showCurrentPlanDetails, setShowCurrentPlanDetails] = useState<boolean>(false);
   const [showPackagePurchaseDetails, setShowPackagePurchaseDetails] = useState<boolean>(false);
-  const [currentPlan, setCurrentPlan] = useState<string | null>(null);
+  const [currentSubscription, setCurrentSubscription] = useState<string | null>(null);
   const [toastProps, setToastProps] = useState({ active: false, content: '', error: false });
   const [subscriptionDetails, setSubscriptionDetails] = useState<SubscriptionDetails>();
   const [purchaseDetails, setPurchaseDetails] = useState<PurchaseDetails>();
@@ -185,7 +187,6 @@ export default function BillingPage({ session }: BillingPageProps) {
   const redirect = app && Redirect.create(app);
   const searchParams = useSearchParams();
   const host = searchParams?.get('host') || '';
-  const shop = searchParams?.get('shop') || session.shopName;
 
   const isProcessing = useMemo(() => {
     return planLoading || packageLoading;
@@ -227,9 +228,8 @@ export default function BillingPage({ session }: BillingPageProps) {
         promotions: dbPlan.promotions ||  configPlan.promotions,
         interval: dbPlan.interval || 'EVERY_30_DAYS',
         price: {
-          ...configPlan.price,
-          monthly: dbPlan.price,
-          currency: dbPlan.currency || configPlan.price.currency,
+          monthly: dbPlan.totalPrice,
+          currency: dbPlan.currency || configPlan.currency,
         },
         planLimits: dbPlan.feature || {},
         description: dbPlan.description || configPlan.description,
@@ -316,11 +316,10 @@ export default function BillingPage({ session }: BillingPageProps) {
   }, []);
 
   const fetchSubscriptionDetails = useCallback(async () => {
-    const shop = searchParams?.get('shop') || '';
     try {
       setDetailLoading(true);
-      const data = await getSubscriptionDetails(shop);
-      setCurrentPlan(data);
+      const data = await getSubscriptionDetails(shopName, email);
+      setCurrentSubscription(data);
       setSubscriptionDetails(data);
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -329,13 +328,12 @@ export default function BillingPage({ session }: BillingPageProps) {
     } finally {
       setDetailLoading(false);
     }
-  }, [searchParams]);
+  }, [searchParams, shopName, email]);
 
   const fetchPurchaseDetails = useCallback(async () => {
-    const shop = searchParams?.get('shop') || '';
     try {
       setDetailLoading(true);
-      const data = await getPurchaseDetails(shop);
+      const data = await getPurchaseDetails(shopName);
       setPurchaseDetails(data);
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -344,26 +342,32 @@ export default function BillingPage({ session }: BillingPageProps) {
     } finally {
       setDetailLoading(false);
     }
-  }, [searchParams]);
+  }, [searchParams, shopName]);
 
   const handleNavigation = useCallback(() => {
-    const shop = searchParams?.get("shop");
-    const host = searchParams?.get("host");
-    if (!shop || !host || !redirect) {
+    if (!shopName || !host || !redirect) {
       console.error('Missing required navigation parameters');
       return;
     }
     const queryParams = new URLSearchParams({
-      shop,
+      shopName,
       host
     }).toString();
-    const returnUrl = `/shops/shop=${shop}?${queryParams}`;
+    const returnUrl = `/versions/light?${queryParams}`;
     redirect.dispatch(Redirect.Action.APP, {
       path: returnUrl
     });
-  }, [searchParams, redirect]);
+  }, [searchParams, redirect, shopName, host]);
 
-    const handleBilling = useCallback(async (planName: string, canceled = false, cancelReason?: string) => {
+  const handleBilling = useCallback(
+    async (
+      planName: string, 
+      canceled = false,
+      cancelReason?: string, 
+      subscriptionId: string | null = null, 
+      prorate: boolean = false, 
+      status?: SubscriptionStatus
+    ) => {
     try {
       setLoadingPlanItem(planName);
       setLoading(true);
@@ -371,9 +375,10 @@ export default function BillingPage({ session }: BillingPageProps) {
       const sessionToken = await getSessionToken(app);
       const event = await SubscriptionService.checkSubscriptionStatus(
         planName,
-        shop,
+        shopName,
         sessionToken,
-        canceled
+        canceled,
+        email
       );
       const serviceState = SubscriptionService.getState();
       if (serviceState.loading) {
@@ -381,13 +386,16 @@ export default function BillingPage({ session }: BillingPageProps) {
       }
       const subscriptionData = await SubscriptionService.handleBillingEvent(
         planName,
-        shop,
+        shopName,
         host,
         sessionToken,
         event,
         canceled,
         cancelReason,
-        session?.shopifyUserEmail
+        email,
+        subscriptionId,
+        prorate,
+        status
       );
       if (subscriptionData.confirmationUrl) {
         setRedirectUrl(subscriptionData.confirmationUrl);
@@ -408,7 +416,7 @@ export default function BillingPage({ session }: BillingPageProps) {
       setLoading(false);
       setLoadingPlanItem(null);
     }
-  }, [app, shop, redirect, searchParams, fetchPlans, session?.shopifyUserEmail]);
+  }, [app, shopName, redirect, searchParams, fetchPlans, email, currentSubscription]);
 
   const handlePurchase = useCallback(async (packageId: string, isCustom: boolean, paymentData?: CreditPaymentInfo) => {
     try {
@@ -416,7 +424,7 @@ export default function BillingPage({ session }: BillingPageProps) {
       setLoading(true);
       setError(null);
       const sessionToken = await getSessionToken(app);
-      const purchaseData = await CreditService.purchaseCredits(shop, host, sessionToken, packageId, isCustom, paymentData, session?.shopifyUserEmail);
+      const purchaseData = await CreditService.purchaseCredits(shopName, host, sessionToken, packageId, isCustom, paymentData, email);
       if (purchaseData.confirmationUrl) {
         setRedirectUrl(purchaseData.confirmationUrl);
         setShowRedirectModal(true);
@@ -433,7 +441,7 @@ export default function BillingPage({ session }: BillingPageProps) {
       setLoading(false);
       setLoadingPackageItem(null);
     }
-  }, [app, shop, host, redirect, searchParams, fetchPackages, session?.shopifyUserEmail]);
+  }, [app, shopName, host, redirect, searchParams, fetchPackages, email]);
 
   const onPurchaseStepBack = () => {
     setCurrentStep(0);
@@ -466,9 +474,7 @@ export default function BillingPage({ session }: BillingPageProps) {
       cancelled: { status: 'warning', label: 'Cancelled' },
       expired: { status: 'critical', label: 'Expired' }
     };
-
     const config = statusConfig[status.toLowerCase()] || statusConfig.pending;
-    
     return (
       <BlockStack alignment="center" spacing="tight">
         {config.icon && <Icon source={config.icon} tone={config.status} />}
@@ -541,8 +547,8 @@ export default function BillingPage({ session }: BillingPageProps) {
             </div>
             <EnhancedCreditPaymentStep
               onPurchase={handlePurchase}
-              shopName={shop}
-              accessToken={session.shopifyOfflineAccessToken}
+              shopName={shopName}
+              accessToken={accessToken}
             />
             <HighLightBar />
           </Box>
@@ -585,7 +591,7 @@ export default function BillingPage({ session }: BillingPageProps) {
               >
                 <BillingCard
                   plan={plan}
-                  currentPlan={currentPlan?.plan?.name === plan.name}
+                  currentPlan={currentSubscription?.plan?.name === plan.name}
                   selectedPlan={loadingPlanItem}
                   onSubscribe={() => handleBilling(plan.name)}
                   loading={loadingPlanItem === plan.name}
@@ -636,10 +642,10 @@ export default function BillingPage({ session }: BillingPageProps) {
         title={
           <Text variant="headingXl" as="h4">Billing Management</Text>
         }
-        titleMetadata={<Badge tone="success">{currentPlan?.status}</Badge>}
+        titleMetadata={<Badge tone="success">Active</Badge>}
         subtitle={
           <Text variant="headingMd" as="h4">
-            You're using the <span className="font-bold font-2xl text-blue-800 bg-amber-200 rounded-full p-1 mx-1">{currentPlan?.plan?.name}</span> plan of Doc2Product. Upgrade to unlock advanced features and enhance your experience.
+            You're using the <span className="font-bold font-2xl text-blue-800 bg-amber-200 rounded-full p-1 mx-1">{currentSubscription?.plan?.name}</span> plan of Doc2Product. Upgrade to unlock advanced features and enhance your experience.
           </Text>
         }
         compactTitle
@@ -648,15 +654,17 @@ export default function BillingPage({ session }: BillingPageProps) {
             id: 'view-subscription-button',
             content: 'View Active Subscription',
             icon: ViewIcon,
+            loading: loading || isProcessing,
             onAction: () => setShowCurrentPlanDetails(true),
           },
-          currentPlan !== 'FREE' && {
+          ...(currentSubscription?.plan?.name !== SubscriptionPlan.FREE ? [{
             id: 'cancel-subscription-button',
             content: 'Cancel subscription',
             destructive: true,
             onAction: () => setConfirmCancelModal(true),
-            loading: loading,
-          },
+            loading: loading || isProcessing,
+          }] : [])
+
         ]}
         actionGroups={[
           {
@@ -666,6 +674,7 @@ export default function BillingPage({ session }: BillingPageProps) {
                 id: 'view-purchase',
                 icon: ViewIcon,
                 content: 'View Package Purchases',
+                loading: loading || isProcessing,
                 onAction: () => setShowPackagePurchaseDetails(true),
               }
             ],
@@ -793,12 +802,13 @@ export default function BillingPage({ session }: BillingPageProps) {
           <Modal
             open={confirmCancelModal}
             onClose={() => setConfirmCancelModal(false)}
-            title={`Cancel ${currentPlan?.plan?.name} Plan`}
+            title={`Cancel ${currentSubscription?.plan?.name} Plan`}
             primaryAction={{
               content: 'Cancel Plan',
               destructive: true,
               onAction: async () => {
-                handleBilling(currentPlan?.plan?.name, true, cancelReason);
+                const shouldProrate = cancellationType === 'immediate';
+                handleBilling(currentSubscription?.plan?.name, true, cancelReason, currentSubscription?.shopifySubscriptionId, shouldProrate, currentSubscription?.status);
                 setConfirmCancelModal(false);
               },
             }}
@@ -813,11 +823,16 @@ export default function BillingPage({ session }: BillingPageProps) {
               <BlockStack gap="400">
                 <Icon source={AlertBubbleIcon} tone="critical" />
                 <Text>
-                  Are you absolutely sure you want to cancel your "{currentPlan?.plan?.name}" plan? 
-                  This action is permanent and cannot be undone. 
-                  You will lose access to all the benefits of your current plan, including [list key features/benefits]. 
-                  We’d hate to see you go — please consider exploring other options before making your decision.
+                  Are you absolutely sure you want to cancel your "{currentSubscription?.plan?.name}" plan? 
+                  This action cannot be undone.
                 </Text>
+                <Select
+                  label="How would you like to cancel?"
+                  options={cancellationOptions}
+                  onChange={setCancellationType}
+                  value={cancellationType}
+                  required
+                />
                 <Select
                   label="Reason for cancellation"
                   options={cancelReasons}
@@ -825,6 +840,16 @@ export default function BillingPage({ session }: BillingPageProps) {
                   value={cancelReason}
                   required
                 />
+                {cancellationType === 'immediate' && (
+                  <Text tone="subdued">
+                    You'll receive a prorated refund for the unused portion of your subscription period.
+                  </Text>
+                )}
+                {cancellationType === 'end-of-cycle' && (
+                  <Text tone="subdued">
+                    Your subscription will remain active until the end of the current billing cycle on {DateTime.fromJSDate(subscriptionDetails?.endDate).toFormat('cccc, dd MMMM yyyy')}.
+                  </Text>
+                )}
               </BlockStack>
             </Modal.Section>
           </Modal>

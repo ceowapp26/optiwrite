@@ -4,7 +4,7 @@ import { DiscountUnit } from '@prisma/client';
 
 interface PlanInput {
   name: string;
-  totalPrice: number;
+  price: number;
   interval: string;
   cappedAmount?: number;
   terms?: string;
@@ -26,13 +26,13 @@ export async function handleCreate(
     if (!client) {
       throw new Error('Client is required');
     }
-    if (!plan?.name || !plan?.totalPrice || !plan?.interval) {
+    if (!plan?.name || !plan?.price || !plan?.interval) {
       throw new Error('Plan name, price, and interval are required');
     }
     if (!returnUrl) {
       throw new Error('Return URL is required');
     }
-     if (plan.totalPrice <= 0) {
+     if (plan.price <= 0) {
       throw new Error('Price must be greater than 0');
     }
     const trialDays = plan.trialDays ? parseInt(String(plan.trialDays)) : undefined;
@@ -46,7 +46,7 @@ export async function handleCreate(
       plan: {
         appRecurringPricingDetails: {
           price: { 
-            amount: parseFloat(plan.totalPrice), 
+            amount: parseFloat(plan.price), 
             currencyCode: 'USD' 
           },
           interval: plan.interval.toUpperCase()
@@ -77,29 +77,26 @@ export async function handleCreate(
         };
       }
     }  
-    const response = await client.query({
-      data: {
-        query: SUBSCRIPTION_CREATE,
-        variables: {
-          name: plan.name.trim(),
-          returnUrl,
-          test: process.env.APP_ENV !== 'production',
-          lineItems: [lineItemInput],
-          ...(trialDays && { trialDays }),
-          replacementBehavior: 'STANDARD'
-        },
-      },
+    const response = await client.request(SUBSCRIPTION_CREATE, {
+      variables: {
+        name: plan.name.trim(),
+        returnUrl,
+        test: process.env.APP_ENV !== 'production',
+        lineItems: [lineItemInput],
+        ...(trialDays && { trialDays }),
+        replacementBehavior: 'STANDARD'
+      }
     });
-    if (response.body.data.appSubscriptionCreate.userErrors?.length > 0) {
-      throw new Error(response.body.data.appSubscriptionCreate.userErrors[0].message);
+    if (response.data.appSubscriptionCreate.userErrors?.length > 0) {
+      throw new Error(response.data.appSubscriptionCreate.userErrors[0].message);
     }
-    if (!response?.body?.data?.appSubscriptionCreate) {
+    if (!response?.data?.appSubscriptionCreate) {
       throw new Error('Invalid response from subscription creation');
     }
     return {
       success: true,
-      confirmationUrl: response.body.data.appSubscriptionCreate.confirmationUrl,
-      subscriptionId: response.body.data.appSubscriptionCreate.appSubscription.id
+      confirmationUrl: response.data.appSubscriptionCreate.confirmationUrl,
+      subscriptionId: response.data.appSubscriptionCreate.appSubscription.id
     };
    } catch (error) {
     console.error('Subscription creation error:', error);
@@ -145,15 +142,16 @@ const validateCappedAmount = (cappedAmount: CappedAmount): void => {
   }
 };
 
-const handleShopifyResponse = (response: any, operation: string): void => {
-  if (!response?.body?.data) {
+const handleShopifyResponse = (response: any, operation: string): any => {
+  if (!response?.data) {
     throw new Error(`Invalid response from Shopify for ${operation}`);
   }
-  
-  const errors = response.body.data[operation]?.userErrors;
+  const operationData = response.data[operation];
+  const errors = operationData?.userErrors;
   if (errors?.length > 0) {
     throw new Error(errors[0].message || `Unknown error occurred during ${operation}`);
   }
+  return operationData;
 };
 
 const getSubscriptionGid = (subscriptionId: string): string => {
@@ -169,30 +167,40 @@ const getSubscriptionGid = (subscriptionId: string): string => {
  */
 export async function handleCancel(
   client: ShopifyClient,
-  subscriptionId: string
+  subscriptionId: string,
+  prorate: boolean = false
 ): Promise<SubscriptionResponse> {
   try {
     validateSubscriptionId(subscriptionId);
     await new Promise(resolve => setTimeout(resolve, 100));
-    const response = await client.query({
-      data: {
-        query: SUBSCRIPTION_CANCEL,
-        variables: {
-          id: getSubscriptionGid(subscriptionId),
-          prorate: false
-        },
+    const response = await client.request(SUBSCRIPTION_CANCEL, {
+      variables: {
+        id: getSubscriptionGid(subscriptionId),
+        prorate
       },
     });
-    handleShopifyResponse(response, 'appSubscriptionCancel');
+    const data = handleShopifyResponse(response, 'appSubscriptionCancel');
     return {
       subscriptionId,
-      message: 'Subscription cancelled successfully'
+      message: 'Subscription cancelled successfully',
+      createdAt: data.appSubscription.createdAt,
+      updatedAt: data.appSubscription.currentPeriodEnd,
+      name: data.appSubscription.name,
+      price: data.appSubscription.lineItems[0]?.plan?.pricingDetails?.price?.amount 
     };
   } catch (error) {
+    console.log('Shopify response:', error.response?.data);
     throw new Error(`Failed to cancel subscription: ${error.message}`);
   }
 }
 
+// Updated type definition to include the new fields
+interface SubscriptionResponse {
+  subscriptionId: string;
+  message: string;
+  createdAt: string;
+  updatedAt: string;
+}
 /**
  * Updates a subscription line item's capped amount
  * @param client - Shopify client instance
@@ -210,13 +218,10 @@ export async function handleUpdateLineItem(
     validateSubscriptionId(subscriptionId);
     validateCappedAmount(cappedAmount);
     await new Promise(resolve => setTimeout(resolve, 100));
-    const response = await client.query({
-      data: {
-        query: SUBSCRIPTION_LINE_ITEM_UPDATE,
-        variables: {
-          id: getSubscriptionGid(subscriptionId),
-          cappedAmount
-        },
+    const response = await client.request(SUBSCRIPTION_LINE_ITEM_UPDATE, {
+      variables: {
+        id: getSubscriptionGid(subscriptionId),
+        cappedAmount
       },
     });
     handleShopifyResponse(response, 'appSubscriptionLineItemUpdate');
@@ -252,13 +257,10 @@ export async function handleExtendTrial(
     }
     await new Promise(resolve => setTimeout(resolve, 100));
 
-    const response = await client.query({
-      data: {
-        query: SUBSCRIPTION_TRIAL_EXTEND,
-        variables: {
-          id: getSubscriptionGid(subscriptionId),
-          days
-        },
+    const response = await client.request(SUBSCRIPTION_TRIAL_EXTEND, {
+      variables: {
+        id: getSubscriptionGid(subscriptionId),
+        days
       },
     });
     handleShopifyResponse(response, 'appSubscriptionTrialExtend');

@@ -1,7 +1,7 @@
 import { createSelector, createSlice, PayloadAction } from "@reduxjs/toolkit";
 
 const initialProduct: PRODUCT = {
-  id: "",
+  contentId: "",
   input: {},
   output: {
     title: "",
@@ -22,7 +22,7 @@ const initialProduct: PRODUCT = {
 };
 
 const initialBlog: BLOG = {
-  id: "",
+  contentId: "",
   input: {},
   output: {
     blog_title: "",
@@ -165,7 +165,7 @@ export const selectContentData = createSelector(
 export const getContentData = (id: string) =>
   createSelector(
     (state: { contents: typeof initialState }) => state?.contents?.content,
-    (content) => (content && content?.id === id ? content : null)
+    (content) => (content && content?.contentId === id ? content : null)
   );
 
 export default contentSlice.reducer;

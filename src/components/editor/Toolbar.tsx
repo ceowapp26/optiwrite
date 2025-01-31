@@ -1,8 +1,8 @@
 "use client";
 import { ElementRef, useRef, useState } from "react";
 import { ImageIcon, Smile, X } from "lucide-react";
-import { type PRODUCT } from "@/types/product";
-import { LengthConstraintSchema } from '@/schemas/product.schema';
+import { type CONTENT } from "@/types/content";
+import { LengthConstraintSchema } from '@/schemas/content.schema';
 import { Box, Text, InlineStack, Tag, Tooltip, Select, Button as PolarisButton, TextField } from '@shopify/polaris';
 import TextareaAutosize from "react-textarea-autosize";
 import { LightbulbIcon } from '@shopify/polaris-icons';
@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { IconPicker } from "./IconPicker";
 
 interface ToolbarProps {
-  initialData: PRODUCT;
+  initialData: CONTENT;
   url?: string;
   preview?: boolean;
   onAddIcon?: (icon: string) => void;
@@ -52,12 +52,13 @@ export const Toolbar = ({
   onSelectUploadType,
   onSelectImageCommand
 }: ToolbarProps) => {
+  const title = initialData?.title || initialData?.article_title || initialData?.blog_title;
   const theme = localStorage.getItem('theme') || 'light';
   const inputRef = useRef<ElementRef<"textarea">>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [error, setError] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [value, setValue] = useState(initialData.title);
+  const [value, setValue] = useState(title);
   const coverImage = useCoverImage();
 
   const handleUploadLocal = () => {
@@ -70,7 +71,7 @@ export const Toolbar = ({
     if (preview) return;
     setIsEditing(true);
     setTimeout(() => {
-      setValue(initialData.title);
+      setValue(title);
       inputRef.current?.focus();
     }, 0);
   };
@@ -206,7 +207,7 @@ export const Toolbar = ({
                     onBlur={disableInput}
                     type="text"
                     autoComplete="off"
-                    placeholder={"Enter your product title"}
+                    placeholder={"Enter your content title"}
                     multiline={2}
                     showCharacterCount
                     maxLength={200}
@@ -220,7 +221,7 @@ export const Toolbar = ({
                 onClick={enableInput}
                 className={`mx-4 mb-4 text-2xl py-2 font-bold break-words outline-none ${theme === 'light' ? 'text-[#3F3F3F]' : 'text-[#CFCFCF]'}`}
               >
-                {initialData.title}
+                {title}
               </div>
             )}
           </div>

@@ -3,12 +3,14 @@ import { ShopifySessionManager } from '@/utils/storage';
 import { ContentManager } from '@/utils/content';
 import { ContentService } from '@/utils/content/contentService';
 import { ContentHelpers } from '@/utils/content/contentHelpers';
-import { handleShopifyInitError, handleContentPublishError } from '@/utils/api/customAPIErrorHandlers';
+import { handleShopifyInitError } from '@/utils/api/customAPIErrorHandlers';
 import { ContentCategory } from '@/types/content';
 import { GenericAPIErrorHandler } from '@/utils/api';
 import { formatProductDescription } from '@/helpers/formatHtml';
 import { ContentStatus } from '@prisma/client';
 import { v4 as uuidv4 } from "uuid";
+import { shopify } from '@/lib/shopify';
+
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request): Promise<Response> {
@@ -19,12 +21,6 @@ export async function POST(req: Request): Promise<Response> {
         status: 400
       });
     }
-    let shopify;
-    try {
-      shopify = await initializeShopify(shopName, accessToken);
-    } catch (error) {
-      return handleShopifyInitError(error);
-    }
     const shop = await ShopifySessionManager.findShopByName(shopName);
     if (!shop) {
       return new Response(JSON.stringify({ error: 'Shop not found' }), {
@@ -32,14 +28,26 @@ export async function POST(req: Request): Promise<Response> {
         headers: { "Content-Type": "application/json" }
       });
     }
-    const contentService = new ContentService(shopify, shop.id, shopName);
+    const session = await ShopifySessionManager.getSessionFromStorageByAccessToken(accessToken);
+    if (!session) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid or expired session' }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+    }
+    const client = new shopify.clients.Graphql({ session });
+    const contentService = new ContentService({ client, shopId: shop.id, shopName });
     try {
       const publishedContent = await contentService.publishContent(
         category,
         content,
-        content?.input?.isNewBlog,
-        content?.input?.blogId,
-        content?.input?.articleIncluded
+        {
+          isNewBlog: content?.input?.isNewBlog,
+          blogId: content?.input?.blogId,
+          articleIncluded: content?.input?.articleIncluded,
+        }
       );
       return new Response(JSON.stringify({ 
         success: true, 
@@ -49,7 +57,14 @@ export async function POST(req: Request): Promise<Response> {
         headers: { "Content-Type": "application/json" }
       });
     } catch (error) {
-      return handleContentPublishError(error);
+      console.error('Content publishing error:', error);
+      return new Response(JSON.stringify({
+        error: 'Failed to publish content',
+        details: error instanceof Error ? error.message : 'Unknown operation error'
+      }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" }
+      });
     }
   } catch (error) {
     return GenericAPIErrorHandler.handleAPIError(error);

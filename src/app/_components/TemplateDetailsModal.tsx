@@ -1,33 +1,38 @@
 'use client';
 
 import { useState } from 'react';
-import { 
-  Modal, 
-  BlockStack, 
-  Select, 
-  Button, 
-  ButtonGroup,
-  Frame,
-  Text,
+import {
   Card,
+  BlockStack,
+  InlineStack,
+  Text,
   Divider,
-  Tooltip,
-  Thumbnail,
-  Badge,
   Layout,
+  Badge,
+  Tag,
+  Frame,
   LegacyCard,
   DataTable,
-  Tag,
-  Avatar
+  Thumbnail,
+  Modal,
+  Avatar,
+  Icon,
+  Button,
+  Tooltip,
+  Banner,
+  SkeletonDisplayText
 } from '@shopify/polaris';
 import { 
   EditIcon, 
+  BlogIcon,
   DeleteIcon, 
   ViewMinorIcon,
   ProductIcon,
   NoteIcon,
   ProfileIcon,
+  MetafieldsIcon,
   CalendarIcon,
+  ChatIcon
 } from '@shopify/polaris-icons';
 import { format } from 'date-fns';
 import { ContentCategory } from '@/types/content';
@@ -91,315 +96,438 @@ type ShopifyContent = IProduct | IArticle | IBlog;
 interface BlogDetailsRenderProps {
   content: IArticle;
   contentType: ContentCategory;
-  viewMode: 'blog' | 'article' | 'both';
   onSelect: (content: IArticle) => void;
   onClose: () => void;
 }
 
+const MetadataTable = ({ metadata }) => {
+  if (!metadata) return null;
+  return (
+    <Card>
+      <BlockStack gap="400">
+        <InlineStack align="start" gap="200">
+          <MetafieldsIcon className="w-5 h-5" />
+          <Text variant="headingMd" as="h3">Metadata</Text>
+        </InlineStack>
+        <DataTable
+          columnContentTypes={['text', 'text']}
+          headings={['Key', 'Value']}
+          rows={Object.entries(metadata).map(([key, value]) => [
+            <Text variant="bodyMd" fontWeight="bold">{key}</Text>,
+            <Text variant="bodyMd">{String(value)}</Text>
+          ])}
+          density="compact"
+        />
+      </BlockStack>
+    </Card>
+  );
+};
+
+const TagsSection = ({ tags, icon: Icon, title }) => {
+  if (!tags?.length) return null;
+  return (
+    <BlockStack gap="300">
+      <InlineStack align="start" gap="200">
+        <Icon className="w-5 h-5" />
+        <Text variant="headingMd" as="h3">{title}</Text>
+      </InlineStack>
+      <InlineStack gap="200" wrap>
+        {tags.map(tag => (
+          <Tooltip key={tag} content={`Filter by ${tag}`}>
+            <Tag onClick={() => {}} variant="interactive">{tag.trim()}</Tag>
+          </Tooltip>
+        ))}
+      </InlineStack>
+    </BlockStack>
+  );
+};
+
 export const BlogDetailsRender: React.FC<BlogDetailsRenderProps> = ({
   content,
-  contentType,
-  viewMode,
-  onChangeViewMode,
   onSelect,
   onClose
 }) => {
-  const blogTags = content.blog?.tags?.split(',').filter(tag => tag.trim()) || [];
-  const articleTags = content.tags?.split(',').filter(tag => tag.trim()) || [];
-  const formatDate = (dateString: string) => {
-    try {
-      return format(new Date(dateString), 'MMMM d, yyyy');
-    } catch {
-      return dateString;
-    }
-  };
-  const renderBlogDetails = () => {
-    if (viewMode === 'article') return null;
-    return (
+  const blogTags = content.blog_tags?.split(',').filter(tag => tag.trim()) || [];
+  return (
+    <BlockStack gap="400">
       <Card>
-        <BlockStack gap="200">
-          <Text variant="headingMd" as="h2">
-            <NoteIcon /> Blog Information
-          </Text>
+        <BlockStack gap="400">
+          <InlineStack align="space-between">
+            <InlineStack gap="200">
+              <BlogIcon className="w-5 h-5" />
+              <Text variant="headingLg" as="h2">Blog Information</Text>
+            </InlineStack>
+          </InlineStack>
           <Divider />
           <Layout>
             <Layout.Section>
-              <BlockStack gap="200">
-                <Text>
-                  <strong>Blog Title:</strong> {content.blog?.title || 'N/A'}
-                </Text>
-                <Text>
-                  <strong>Blog Handle:</strong> {content.blog?.handle || 'N/A'}
-                </Text>
-                <Badge status={content.blog?.commentable ? 'success' : 'warning'}>
-                  {content.blog?.commentable ? 'Comments Enabled' : 'Comments Disabled'}
-                </Badge>
-                {blogTags.length > 0 && (
-                  <div>
-                    <Text variant="bodyMd">
-                      <ProductIcon /> Blog Tags
-                    </Text>
-                    {blogTags.map(tag => (
-                      <Tag key={tag} variant="subtle">{tag.trim()}</Tag>
-                    ))}
-                  </div>
-                )}
+              <BlockStack gap="400">
+                <InlineStack gap="400" wrap>
+                  <Text as="h3" variant="headingMd">{content?.blog_title || 'Untitled Blog'}</Text>
+                  <Badge size="small" tone={content?.blog_commentable ? 'success' : 'warning'}>
+                    <InlineStack gap="200">
+                      <ChatIcon className="w-5 h-5" />
+                      {content?.blog_commentable ? 'Comments Enabled' : 'Comments Disabled'}
+                    </InlineStack>
+                  </Badge>
+                </InlineStack>
+                <BlockStack gap="200">
+                  <Text variant="bodyMd">
+                    <strong>Handle:</strong> {content?.blog_handle || 'N/A'}
+                  </Text>
+                  {content?.blog_url && (
+                    <Button
+                      icon={ViewIcon}
+                      onClick={() => window.open(content.blog_url, '_blank')}
+                      plain
+                    >
+                      View Blog
+                    </Button>
+                  )}
+                </BlockStack>
+                <TagsSection
+                  tags={blogTags}
+                  icon={ProductIcon}
+                  title="Blog Tags"
+                />
               </BlockStack>
             </Layout.Section>
           </Layout>
         </BlockStack>
       </Card>
-    );
-  };
+      <MetadataTable metadata={content.blog_metafield} />
+    </BlockStack>
+  );
+};
 
-  const renderArticleDetails = () => {
-    if (viewMode === 'blog') return null;
-
-    return (
-      <Card>
-        <BlockStack gap="300">
-          <Text variant="headingMd" as="h2">
-            <NoteIcon /> Article Details
-          </Text>
-          <Divider />
-          
-          {content.image && (
-            <Thumbnail
-              source={content.image.src}
-              alt={content.title}
-              size="large"
-            />
-          )}
-
-          <BlockStack gap="200">
-            <Text variant="headingLg" as="h1">
-              {content.title}
-            </Text>
-
-            <Layout>
-              <Layout.Section oneHalf>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <Avatar customer name={content.author} />
-                  <Text variant="bodyMd">
-                    <ProfileIcon /> {content.author}
-                  </Text>
-                </div>
-              </Layout.Section>
-              <Layout.Section oneHalf>
-                <Text variant="bodyMd">
-                  <CalendarIcon /> Published: {formatDate(content.published_at)}
-                </Text>
-              </Layout.Section>
-            </Layout>
-
-            {content.summary_html && (
-              <Card>
-                <Text variant="bodyMd">
-                  <div 
-                    dangerouslySetInnerHTML={{ 
-                      __html: content.summary_html 
-                    }} 
-                  />
-                </Text>
-              </Card>
-            )}
-
-            {articleTags.length > 0 && (
-              <div>
-                <Text variant="bodyMd">
-                  <ProductIcon /> Article Tags
-                </Text>
-                {articleTags.map(tag => (
-                  <Tag key={tag} variant="subtle">{tag.trim()}</Tag>
-                ))}
-              </div>
-            )}
-          </BlockStack>
-        </BlockStack>
-      </Card>
-    );
-  };
-
-  const renderMetadata = () => {
-    if (!content.metafield) return null;
-
-    return (
-      <LegacyCard title="Metadata">
-        <DataTable
-          columnContentTypes={['text', 'text']}
-          headings={['Key', 'Value']}
-          rows={Object.entries(content.metafield).map(([key, value]) => [
-            key, 
-            String(value)
-          ])}
-        />
-      </LegacyCard>
-    );
-  };
+export const ArticleDetailsRender: React.FC<BlogDetailsRenderProps> = ({
+  content,
+  onSelect,
+  onClose
+}) => {
+  const articleTags = content.article_tags?.split(',').filter(tag => tag.trim()) || [];
 
   return (
     <Frame>
-      <BlockStack gap="300">
-        {(contentType === ContentCategory.BLOG || contentType === ContentCategory.ARTICLE) && (
-          <Select
-            label="View Mode"
-            options={[
-              { label: 'Blog', value: 'blog' },
-              { label: 'Article', value: 'article' },
-              { label: 'Combined', value: 'both' }
-            ]}
-            value={viewMode}
-            onChange={(value) => onChangeViewMode(value)}
-          />
-        )}
+      <BlockStack gap="400">
+        <Card>
+          <BlockStack gap="400">
+            <InlineStack align="space-between">
+              <InlineStack gap="200">
+                <NoteIcon className="w-5 h-5" />
+                <Text variant="headingLg" as="h2">Article Details</Text>
+              </InlineStack>
+            </InlineStack>
+            <Divider />
+            {content.article_image ? (
+              <div style={{ maxWidth: '100%', position: 'relative' }}>
+                <img
+                  src={content.article_image.src}
+                  alt={content.article_title}
+                  style={{
+                    width: '100%',
+                    height: 'auto',
+                    borderRadius: '8px',
+                    objectFit: 'cover'
+                  }}
+                />
+              </div>
+            ) : (
+              <Banner tone="info">No featured image available</Banner>
+            )}
+            <BlockStack gap="400">
+              <Text variant="headingXl" as="h1">
+                {content?.article_title}
+              </Text>
+              <InlineStack align="start" gap="200">
+                <Avatar customer name={content?.article_author} />
+                <BlockStack>
+                  <Text variant="bodyMd" fontWeight="bold">
+                    {content?.article_author}
+                  </Text>
+                  <Text variant="bodySm" color="subdued">
+                    {new Date(content?.published_at).toLocaleDateString()}
+                  </Text>
+                </BlockStack>
+              </InlineStack>
 
-        {renderBlogDetails()}
-        {renderArticleDetails()}
-        {renderMetadata()}
-
-        <ButtonGroup fullWidth>
-          <Tooltip content="Edit Content">
-            <Button 
-              primary 
-              icon={EditIcon} 
-              onClick={() => onSelect(content)}
-            >
-              Edit
-            </Button>
-          </Tooltip>
-          <Tooltip content="Delete Content">
-            <Button 
-              destructive 
-              icon={DeleteIcon} 
-              onClick={() => onClose()}
-            >
-              Delete
-            </Button>
-          </Tooltip>
-        </ButtonGroup>
+              {content?.article_body_html && (
+                <Card>
+                  <BlockStack gap="400">
+                    <Text variant="headingMd">Content</Text>
+                    <div 
+                      className="article-content"
+                      dangerouslySetInnerHTML={{ 
+                        __html: content.article_body_html 
+                      }} 
+                    />
+                  </BlockStack>
+                </Card>
+              )}
+              {content?.article_summary_html && (
+                <Card>
+                  <BlockStack gap="400">
+                    <Text variant="headingMd">Summary</Text>
+                    <div 
+                      className="article-summary"
+                      dangerouslySetInnerHTML={{ 
+                        __html: content.article_summary_html 
+                      }} 
+                    />
+                  </BlockStack>
+                </Card>
+              )}
+              <TagsSection
+                tags={articleTags}
+                icon={ProductIcon}
+                title="Article Tags"
+              />
+            </BlockStack>
+          </BlockStack>
+        </Card>
+        <MetadataTable metadata={content.article_metafield} />
       </BlockStack>
     </Frame>
   );
 };
 
-const ProductDetailsRenderer = ({ 
-  product, 
-  onSelect, 
-  onClose 
-}: { 
-  product: IProduct, 
-  onSelect: (content: IProduct) => void, 
-  onClose: () => void 
+export const BlogArticleDetailsRender: React.FC<BlogDetailsRenderProps> = ({
+  content,
+  onSelect,
+  onClose
+}) => {
+  const blogTags = content.blog_tags?.split(',').filter(tag => tag.trim()) || [];
+  const articleTags = content.article_tags?.split(',').filter(tag => tag.trim()) || [];
+  return (
+    <>
+      <BlockStack gap="400">
+        <Card>
+          <BlockStack gap="400">
+            <InlineStack align="space-between">
+              <InlineStack gap="200">
+                <BlogIcon className="w-5 h-5" />
+                <Text variant="headingLg" as="h2">Blog Information</Text>
+              </InlineStack>
+            </InlineStack>
+            <Divider />
+            <Layout>
+              <Layout.Section>
+                <BlockStack gap="400">
+                  <InlineStack gap="400" wrap>
+                    <Text as="h3" variant="headingMd">{content?.blog_title || 'Untitled Blog'}</Text>
+                    <Badge size="small" tone={content?.blog_commentable ? 'success' : 'warning'}>
+                      <InlineStack gap="200">
+                        <ChatIcon className="w-5 h-5" />
+                        {content?.blog_commentable ? 'Comments Enabled' : 'Comments Disabled'}
+                      </InlineStack>
+                    </Badge>
+                  </InlineStack>
+                  <BlockStack gap="200">
+                    <Text variant="bodyMd">
+                      <strong>Handle:</strong> {content?.blog_handle || 'N/A'}
+                    </Text>
+                    {content?.blog_url && (
+                      <Button
+                        icon={ViewIcon}
+                        onClick={() => window.open(content.blog_url, '_blank')}
+                        plain
+                      >
+                        View Blog
+                      </Button>
+                    )}
+                  </BlockStack>
+                  <TagsSection
+                    tags={blogTags}
+                    icon={ProductIcon}
+                    title="Blog Tags"
+                  />
+                </BlockStack>
+              </Layout.Section>
+            </Layout>
+          </BlockStack>
+        </Card>
+        <MetadataTable metadata={content.blog_metafield} />
+      </BlockStack>
+     <BlockStack gap="400">
+        <Card>
+          <BlockStack gap="400">
+            <InlineStack align="space-between">
+              <InlineStack gap="200">
+                <NoteIcon className="w-5 h-5" />
+                <Text variant="headingLg" as="h2">Article Details</Text>
+              </InlineStack>
+            </InlineStack>
+            <Divider />
+            {content.article_image ? (
+              <div style={{ maxWidth: '100%', position: 'relative' }}>
+                <img
+                  src={content.article_image.src}
+                  alt={content.article_title}
+                  style={{
+                    width: '100%',
+                    height: 'auto',
+                    borderRadius: '8px',
+                    objectFit: 'cover'
+                  }}
+                />
+              </div>
+            ) : (
+              <Banner tone="info">No featured image available</Banner>
+            )}
+            <BlockStack gap="400">
+              <Text variant="headingXl" as="h1">
+                {content?.article_title}
+              </Text>
+              <InlineStack align="start" gap="200">
+                <Avatar customer name={content?.article_author} />
+                <BlockStack>
+                  <Text variant="bodyMd" fontWeight="bold">
+                    {content?.article_author}
+                  </Text>
+                  <Text variant="bodySm" color="subdued">
+                    {new Date(content?.published_at).toLocaleDateString()}
+                  </Text>
+                </BlockStack>
+              </InlineStack>
+
+              {content?.article_body_html && (
+                <Card>
+                  <BlockStack gap="400">
+                    <Text variant="headingMd">Content</Text>
+                    <div 
+                      className="article-content"
+                      dangerouslySetInnerHTML={{ 
+                        __html: content.article_body_html 
+                      }} 
+                    />
+                  </BlockStack>
+                </Card>
+              )}
+              {content?.article_summary_html && (
+                <Card>
+                  <BlockStack gap="400">
+                    <Text variant="headingMd">Summary</Text>
+                    <div 
+                      className="article-summary"
+                      dangerouslySetInnerHTML={{ 
+                        __html: content.article_summary_html 
+                      }} 
+                    />
+                  </BlockStack>
+                </Card>
+              )}
+              <TagsSection
+                tags={articleTags}
+                icon={ProductIcon}
+                title="Article Tags"
+              />
+            </BlockStack>
+          </BlockStack>
+        </Card>
+        <MetadataTable metadata={content.article_metafield} />
+      </BlockStack>
+    </>
+  );
+};
+
+export const ProductDetailsRenderer: React.FC<ProductDetailsRendererProps> = ({
+  product,
+  onSelect,
+  onClose
 }) => {
   const tags = product.tags?.split(',').filter(tag => tag.trim()) || [];
-
+  const getStatusBadgeProps = (status: string) => {
+    const statusMap = {
+      active: { tone: 'success', label: 'Active' },
+      draft: { tone: 'warning', label: 'Draft' },
+      archived: { tone: 'critical', label: 'Archived' }
+    };
+    return statusMap[status.toLowerCase()] || { tone: 'info', label: status };
+  };
   return (
-    <Layout>
-      <Layout.Section>
-        <BlockStack gap="400">
-          <Card>
-            <BlockStack gap="200">
-              <Text variant="headingLg" as="h2">
-                <ProductIcon /> Product Overview
-              </Text>
-              <Divider />
-              <Layout>
-                <Layout.Section oneThird>
-                  {product.image && (
-                    <Thumbnail
-                      source={product.image.src}
+    <Frame>
+      <BlockStack gap="400">
+        <Card>
+          <BlockStack gap="400">
+            <InlineStack align="space-between">
+              <InlineStack gap="200">
+                <ProductIcon className="w-5 h-5" />
+                <Text variant="headingLg" as="h2">Product Details</Text>
+              </InlineStack>
+              <InlineStack gap="200">
+                <Button onClick={() => onSelect(product)} primary>
+                  Select Product
+                </Button>
+              </InlineStack>
+            </InlineStack>
+            <Divider />
+            <Layout>
+              <Layout.Section oneThird>
+                {product.image ? (
+                  <div style={{ position: 'relative' }}>
+                    <img
+                      src={product.image.src}
                       alt={product.title}
-                      size="large"
+                      style={{
+                        width: '100%',
+                        height: 'auto',
+                        borderRadius: '8px',
+                        objectFit: 'cover'
+                      }}
                     />
-                  )}
-                </Layout.Section>
-                <Layout.Section twoThirds>
-                  <BlockStack gap="200">
-                    <Text variant="headingMd">{product.title}</Text>
-                    <Text variant="bodyMd" color="subdued">
-                      Vendor: {product.vendor}
-                    </Text>
-                    <Badge status={
-                      product.status === 'active' ? 'success' : 
-                      product.status === 'draft' ? 'warning' : 
-                      'critical'
-                    }>
+                  </div>
+                ) : (
+                  <Card>
+                    <BlockStack gap="200" align="center">
+                      <ProductIcon className="w-5 h-5" />
+                      <Text alignment="center" color="subdued">
+                        No product image available
+                      </Text>
+                    </BlockStack>
+                  </Card>
+                )}
+              </Layout.Section>
+              <Layout.Section>
+                <BlockStack gap="400">
+                  <Text variant="headingXl" as="h1">
+                    {product.title}
+                  </Text>
+                  <InlineStack wrap gap="200">
+                    <Badge {...getStatusBadgeProps(product.status)}>
                       {product.status.toUpperCase()}
                     </Badge>
-                  </BlockStack>
-                </Layout.Section>
-              </Layout>
-            </BlockStack>
-          </Card>
-
-          <Card>
-            <BlockStack gap="200">
-              <Text variant="headingMd">
-                <NoteIcon /> Product Description
-              </Text>
-              <Divider />
-              <div 
-                dangerouslySetInnerHTML={{ 
-                  __html: product.body_html || 'No description available' 
-                }} 
-              />
-            </BlockStack>
-          </Card>
-
-          <Card>
-            <BlockStack gap="200">
-              <Text variant="headingMd">
-                <ProductIcon /> Product Tags
-              </Text>
-              <Divider />
-              <div>
-                {tags.length > 0 ? (
-                  tags.map(tag => (
-                    <Tag key={tag} variant="subtle">{tag.trim()}</Tag>
-                  ))
-                ) : (
-                  <Text color="subdued">No tags</Text>
-                )}
-              </div>
-            </BlockStack>
-          </Card>
-
-          {product.metafield && (
-            <LegacyCard title="Metadata">
-              <DataTable
-                columnContentTypes={['text', 'text']}
-                headings={['Key', 'Value']}
-                rows={Object.entries(product.metafield).map(([key, value]) => [
-                  key, 
-                  String(value)
-                ])}
-              />
-            </LegacyCard>
-          )}
-
-          <ButtonGroup fullWidth>
-            <Tooltip content="Edit Product">
-              <Button 
-                primary 
-                icon={EditIcon} 
-                onClick={() => onSelect(product)}
-              >
-                Edit
-              </Button>
-            </Tooltip>
-            <Tooltip content="Delete Product">
-              <Button 
-                destructive 
-                icon={DeleteIcon} 
-                onClick={() => onClose()}
-              >
-                Delete
-              </Button>
-            </Tooltip>
-          </ButtonGroup>
-        </BlockStack>
-      </Layout.Section>
-    </Layout>
+                    {product.vendor && (
+                      <Text variant="bodyMd" color="subdued">
+                        by {product.vendor}
+                      </Text>
+                    )}
+                  </InlineStack>
+                  {product.body_html && (
+                    <Card>
+                      <BlockStack gap="400">
+                        <Text variant="headingMd">Description</Text>
+                        <div 
+                          className="product-description"
+                          dangerouslySetInnerHTML={{ 
+                            __html: product.body_html 
+                          }} 
+                        />
+                      </BlockStack>
+                    </Card>
+                  )}
+                  <TagsSection
+                    tags={tags}
+                    icon={ProductIcon}
+                    title="Product Tags"
+                  />
+                </BlockStack>
+              </Layout.Section>
+            </Layout>
+          </BlockStack>
+        </Card>
+        <MetadataTable metadata={product.metafield} />
+      </BlockStack>
+    </Frame>
   );
 };
 
@@ -411,10 +539,9 @@ export const TemplateDetailsModal: React.FC<ContentModalProps> = ({
   onView,
   onSelect,
 }) => {
-  const [viewMode, setViewMode] = useState<'blog' | 'article' | 'both'>('both');
-
+  console.log("this is contentType", contentType.toUpperCase())
   const renderContentDetails = () => {
-    switch (contentType) {
+    switch (contentType.toUpperCase()) {
       case ContentCategory.PRODUCT:
         return (
           <ProductDetailsRenderer
@@ -428,12 +555,10 @@ export const TemplateDetailsModal: React.FC<ContentModalProps> = ({
         const article = content as IArticle;
         return (
           <Frame>
-            <BlogDetailsRender
+            <ArticleDetailsRender
               content={content}
-              contentType={contentType}
               onSelect={onSelect}
-              viewMode={viewMode}
-              onChangeViewMode={setViewMode} 
+              onClose={onClose}
             />
           </Frame>
         );
@@ -444,10 +569,20 @@ export const TemplateDetailsModal: React.FC<ContentModalProps> = ({
           <Frame>
             <BlogDetailsRender
               content={content}
-              contentType={contentType}
               onSelect={onSelect}
-              viewMode={viewMode}
-              onChangeViewMode={setViewMode} 
+              onClose={onClose}
+            />
+          </Frame>
+        );
+      }
+
+      case ContentCategory.BLOGARTICLE: {
+        return (
+          <Frame>
+            <BlogArticleDetailsRender
+              content={content}
+              onSelect={onSelect}
+              onClose={onClose}
             />
           </Frame>
         );
@@ -468,17 +603,19 @@ export const TemplateDetailsModal: React.FC<ContentModalProps> = ({
         (content as IBlog).title ||
         'Content Details'
       }
-      primaryAction={{
-        content: 'Edit',
-        onAction: () => onSelect(content),
-      }}
       secondaryActions={[
-        {
-          content: 'Delete',
-          destructive: true,
-          onAction: () => onClose(),
-        },
+      {
+        content: 'Close',
+        onAction: () => onClose(),
+      }
       ]}
+      primaryAction={{
+        content: 'Select',
+        onAction: () => {
+          onSelect(content);
+          onClose();
+        },
+      }}
       large
     >
       <Modal.Section>{renderContentDetails()}</Modal.Section>

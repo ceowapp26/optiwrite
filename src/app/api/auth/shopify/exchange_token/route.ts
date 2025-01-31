@@ -4,6 +4,8 @@ import { ShopifySessionManager, SessionNotFoundError } from '@/utils/storage';
 import { beginAuth } from '../auth';
 import { verifyToken, exchangeToken, generateQueryParams, ExpiredTokenError } from '@/utils/auth/shopify';
 
+export const maxDuration = 60;
+
 export async function POST(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const shop = searchParams.get('shop');

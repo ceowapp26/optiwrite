@@ -696,7 +696,10 @@ export class BillingOperationsService {
     originalAmount: number,
     discountValue: number,
     discountUnit: DiscountUnit
-  ): Promise<number> {
+  ): Promise<{
+    adjustedPrice: number;
+    adjustedValue: number;
+  }> {
     switch (discountUnit) {
       case DiscountUnit.PERCENTAGE:
         return { 
@@ -720,7 +723,10 @@ export class BillingOperationsService {
     baseValue: number,
     promotionValue: number,
     promotionUnit: PromotionUnit
-  ): Promise<number> {
+  ): Promise<{
+    adjustedPrice: number;
+    adjustedValue: number;
+  }> {
     switch (promotionUnit) {
       case PromotionUnit.PERCENTAGE:
         return { 

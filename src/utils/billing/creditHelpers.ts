@@ -16,21 +16,18 @@ export async function createOneTimePayment(
   returnUrl: string,
 ) {
   try {
-    const response = await client.query({
-      data: {
-        query: ONE_TIME_CREATE,
-        variables: {
-          name: payment.name,
-          returnUrl,
-          test: process.env.APP_ENV !== 'production',
-          price: {
-            amount: payment.price,
-            currencyCode: payment.currencyCode || 'USD'
-          },
+    const response = await client.request(ONE_TIME_CREATE, {
+      variables: {
+        name: payment.name,
+        returnUrl,
+        test: process.env.APP_ENV !== 'production',
+        price: {
+          amount: payment.price,
+          currencyCode: payment.currencyCode || 'USD'
         },
       },
     });
-    const { appPurchaseOneTimeCreate } = response.body.data;
+    const { appPurchaseOneTimeCreate } = response.data;
     if (appPurchaseOneTimeCreate.userErrors.length > 0) {
       throw new Error(appPurchaseOneTimeCreate.userErrors[0].message);
     }
@@ -49,27 +46,24 @@ export async function checkOneTimePaymentStatus(
   client: any,
   paymentId: string
 ) {
+  const ONE_TIME_PAYMENT_STATUS = `
+    query GetAppPurchaseOneTime($id: ID!) {
+      node(id: $id) {
+        ... on AppPurchaseOneTime {
+          id
+          status
+          createdAt
+        }
+      }
+    }
+  `;
   try {
-    const response = await client.query({
-      data: {
-        query: `
-          query GetAppPurchaseOneTime($id: ID!) {
-            node(id: $id) {
-              ... on AppPurchaseOneTime {
-                id
-                status
-                createdAt
-              }
-            }
-          }
-        `,
-        variables: {
-          id: paymentId
-        },
+    const response = await client.request(ONE_TIME_PAYMENT_STATUS, {
+      variables: {
+        id: paymentId
       },
     });
-
-    return response.body.data.node;
+    return response.data.node;
   } catch (error) {
     console.error('Error checking one-time payment status:', error);
     throw new Error('Failed to check payment status');

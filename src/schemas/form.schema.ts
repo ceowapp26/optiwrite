@@ -11,7 +11,7 @@ export const textFieldValidationSchema = z.object({
       .min(1, 'URL is required')
       .max(250, 'URL cannot exceed 250 characters')
   ).min(1, 'At least one URL is required').optional().default([]),
-
+  
   subtitlePrompts: z.array(
     z.string()
       .min(1, 'Subtitle text is required')
@@ -27,16 +27,23 @@ export const validateField = (
   index?: number
 ): string | undefined => {
   try {
-    if (fieldName === 'urls' && typeof index === 'number') {
-      const urlSchema = textFieldValidationSchema.shape.urls.element;
-      urlSchema.parse(value);
+    if (Array.isArray(value)) {
+      const schema = textFieldValidationSchema.shape[fieldName];
+      schema.parse(value);
       return undefined;
     }
-
+    if (fieldName === 'urls' && typeof index === 'number') {
+      return z.string()
+        .url('Please enter a valid URL')
+        .min(1, 'URL is required')
+        .max(250, 'URL cannot exceed 250 characters')
+        .safeParse(value).success ? undefined : 'Invalid URL';
+    }
     if (fieldName === 'subtitlePrompts' && typeof index === 'number') {
-      const subtitleSchema = textFieldValidationSchema.shape.subtitlePrompts.element;
-      subtitleSchema.parse(value);
-      return undefined;
+      return z.string()
+        .min(1, 'Subtitle text is required')
+        .max(250, 'Subtitle text cannot exceed 250 characters')
+        .safeParse(value).success ? undefined : 'Invalid subtitle';
     }
     const schema = textFieldValidationSchema.shape[fieldName];
     schema.parse(value);

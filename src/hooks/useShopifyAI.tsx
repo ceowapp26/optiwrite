@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState, useEffect } from "react";
 import { Modal, Button, Tooltip, TextContainer, Card, Banner } from '@shopify/polaris';
 import axios from "axios";
 import { toast } from "sonner";
@@ -7,14 +7,26 @@ import { getAIModel } from '@/actions/model';
 import { useUsageStore } from '@/hooks/useUsageStore';
 import { debounce } from 'lodash';
 import { AlertCircleIcon, CheckCircle2Icon, ScissorsIcon } from 'lucide-react';
-import { validateData, validateFieldLength, chopHtmlContent, type LengthValidationError, processJsonData } from '@/utils/data';
+import { storeSession, selectSession } from "@/stores/features/authSlice";
+import { 
+  validateData, 
+  validateFieldLength, 
+  chopHtmlContent, 
+  type LengthValidationError, 
+  processJsonData, 
+  extractBlogHandleFromUrl, 
+  extractArticleHandleFromUrl, 
+  extractProductHandleFromUrl,
+  constructArticleUrl,
+  constructBlogUrl,
+  constructProductUrl
+} from '@/utils/data';
 import { useAppDispatch, useAppSelector } from '@/hooks/useLocalStore';
-import { storeContextData, selectContextData } from "@/stores/features/contextSlice";
 import { AppBridgeState, ClientApplication } from '@shopify/app-bridge';
 import { convertModelName } from '@/utils/ai';
 import { CATEGORY, ContentCategory } from '@/types/content';
 import { Command, AIError } from '@/types/ai';
-import { GENERIC_FORM, DEFAULT_VALUES } from '@/constants/product';
+import { GENERIC_FORM, DEFAULT_VALUES } from '@/constants/content';
 import { countTokens } from '@/utils/ai';
 import { useCompletion } from 'ai/react';
 import { unsplash } from "@/hooks/useUnsplashCoverImage";
@@ -74,8 +86,8 @@ export const useShopifyAI = ({
   setAiErrors,
 }: UseShopifyAIProps = {}) => {
   const dispatch = useAppDispatch();
-  const defaultValues = useAppSelector(selectContextData);
   const appRef = useRef(app);
+  const { email } = useAppSelector(selectSession);
   const apiStateRef = useRef<APIState>({ tokenCounts: null, rateLimits: null });
   const stateRef = useRef({
     isProcessing: false,
@@ -106,21 +118,7 @@ export const useShopifyAI = ({
     } 
   }, []);
 
-  const validateDefaultValues = useCallback((values: Record<string, any>) => {
-    if (!values || typeof values !== 'object') return false;
-    const requiredFields = GENERIC_FORM
-      .filter(field => field.required)
-      .map(field => field.name);
-    const hasRequiredFields = requiredFields.every(field => field in values);
-    if (!hasRequiredFields) return false;
-    const { isValid } = validateData(values);
-    return isValid;
-  }, []);
-
   const getFallbackValues = useCallback(() => {
-    if (defaultValues && validateDefaultValues(defaultValues)) {
-      return defaultValues;
-    }
     if (!DEFAULT_VALUES || typeof DEFAULT_VALUES !== 'object') {
       const emptyDefaults = GENERIC_FORM
         .filter(field => field.required)
@@ -131,7 +129,7 @@ export const useShopifyAI = ({
       return emptyDefaults;
     }
     return DEFAULT_VALUES;
-  }, [defaultValues, validateDefaultValues]);
+  }, []);
 
   const handleRateLimitHeaders = useCallback((headers: Headers): APIRateLimits => {
     const rateLimits = {
@@ -305,75 +303,106 @@ export const useShopifyAI = ({
     }
   }, [getAiApi, handleResponseError, handleRateLimitHeaders]);
 
-  const flattenedContentData = useCallback((category, output, articleIncluded = false, isNewBlog = null) => {
-    const getBlogFields = (data) => ({
-      blog_title: data.title,
-      blog_commentable: data.commentable ? 'yes' : 'no',
-      blog_feedburner: data.feedburner,
-      blog_feedburner_location: data.feedburner_location,
-      blog_handle: data.handle,
-      blog_tags: data.tags,
-      blog_template_suffix: data.template_suffix,
-      blog_metafield: processJsonData(data.metafield),
-    });
-    const getArticleFields = (data) => ({
-      article_title: data.title,
-      article_author: data.author,
-      article_body_html: data.body_html,
-      article_handle: data.handle,
-      article_image: '',
-      article_metafield: processJsonData(data.metafield),
-      article_published: true,
-      article_summary_html: data.summary_html,
-      article_tags: data.tags,
-      article_template_suffix: data.template_suffix,
-    });
-    if (category === ContentCategory.BLOG) {
-      const blogFields = getBlogFields(output);
-      return articleIncluded 
-        ? { ...blogFields, ...getArticleFields(output.article) }
-        : blogFields;
-    }
-    if (category === ContentCategory.ARTICLE) {
-      return isNewBlog
-        ? { ...getBlogFields(output), ...getArticleFields(output.article) }
-        : getArticleFields(output);
-    }
-
-    if (category === ContentCategory.PRODUCT) {
+  const flattenedContentData = useCallback((
+    shopName: string, 
+    category: ContentCategory, 
+    output: any, 
+    articleIncluded = false, 
+    isNewBlog = false
+  ) => {
+    const getBlogFields = (data: any) => {
+      let blogHandle = data.handle;
+      const extractResult = extractBlogHandleFromUrl(data.handle, data.title);
+      blogHandle = extractResult.success ? extractResult.handle : data.handle;
       return {
-        ...output,
-        page_title: output.seo.page_title,
-        meta_description: output.seo.meta_description,
+        blog_title: data.title,
+        blog_commentable: data.commentable ? 'AUTO_PUBLISHED' : 'MODERATED',
+        blog_feedburner: data.feedburner,
+        blog_feedburner_location: data.feedburner_location,
+        blog_handle: blogHandle,
+        blog_tags: data.tags,
+        blog_template_suffix: data.template_suffix,
+        blog_metafield: processJsonData(data.metafield),
+        blog_page_title: data?.metafield[0]?.value,
+        blog_meta_description: data?.metafield[1]?.value,
       };
-    }
+    };
 
-    return {};
+    const getArticleFields = (data: any, blogTitle?: string) => {
+      let articleHandle = data.handle;
+      const extractResult = extractArticleHandleFromUrl(data.handle, data.title);
+      articleHandle = extractResult.success ? extractResult.handle : data.handle;
+      return {
+        article_title: data.title,
+        article_author: data.author,
+        article_body_html: data.body_html,
+        article_handle: articleHandle,
+        article_image: '',
+        article_metafield: processJsonData(data.metafield),
+        article_published: true,
+        article_published_at: new Date().toISOString(),
+        article_summary_html: data.summary_html,
+        article_tags: data.tags,
+        article_template_suffix: data.template_suffix,
+        article_page_title: data?.metafield[0]?.value,
+        article_meta_description: data?.metafield[1]?.value,
+      };
+    };
+
+    const getProductFields = (data: any) => {
+      let productHandle = data.handle;
+      const extractResult = extractProductHandleFromUrl(data.handle, data.title);
+      productHandle = extractResult.success ? extractResult.handle : data.handle;
+      return {
+        ...data,
+        handle: productHandle,
+        page_title: data?.metafield[0]?.value,
+        meta_description: data?.metafield[1]?.value,
+      };
+    };
+
+    switch (category) {
+      case ContentCategory.BLOG: {
+        const blogFields = getBlogFields(output);
+        return articleIncluded 
+          ? { ...blogFields, ...getArticleFields(output.article, output?.title) }
+          : blogFields;
+      }
+
+      case ContentCategory.ARTICLE: {
+        return isNewBlog
+          ? { ...getArticleFields(output, output?.blog?.title), ...getBlogFields(output.blog) }
+          : getArticleFields(output, output?.blog?.title);
+      }
+
+      case ContentCategory.PRODUCT: {
+        return getProductFields(output);
+      }
+
+      default:
+        return {};
+    }
   }, []);
 
-  const processAIResponse = useCallback(async (category: CATEGORY, completion: string, shopName?: string, articleIncluded?: boolean, isNewBlog?: string | null) => {
+  const processAIResponse = useCallback(async (category: CATEGORY, completion: string, shopName?: string, articleIncluded?: boolean, isNewBlog?: boolean) => {
     try {
-      const flattenedData = flattenedContentData(category, completion, articleIncluded, isNewBlog);
+      const flattenedData = flattenedContentData(shopName, category, completion, articleIncluded, isNewBlog);
       const { isValid, data, errors } = validateData(flattenedData, shopName, category);
-      const fieldValidations = Object.entries(data).reduce((acc: { data: Record<string, any> }, [key, value]) => {
+      const fieldValidations = Object.entries(data).reduce((acc, [key, value]) => {
         if (typeof value === 'string') {
           const validation = validateFieldLength(key, value);
           acc.data[key] = !validation.isValid && validation.error ?
-            (key === 'bodyContent' ? 
+            (key === 'body_html' ||  key === 'article_body_html'? 
               chopHtmlContent(value, validation.error.constraint.max || value.length) :
               value.slice(0, validation.error.constraint.max || value.length)) :
             value;
-        } else {
-          acc.data[key] = value;
         }
         return acc;
       }, { data: { ...data } });
-
       if (!isValid && setAiErrors) {
         setAiErrors(errors);
       }
-      dispatch(storeContextData(fieldValidations.data));
-      return fieldValidations.data;
+      return data;
     } catch (e) {
       console.error('Error parsing completion:', e);
       setAiErrors?.([{
@@ -518,7 +547,7 @@ export const useShopifyAI = ({
     abortControllerRef.current = new AbortController();
     if (option !== "SEOSINGLE") setIsLoading?.(true);
     try {
-      await setShopDetails(shopName, userId);
+      await setShopDetails(shopName, userId, email);
       const model = await getAIModel();
       const modelName = model?.name || 'gpt_4o_mini';
       const normalizedModelName = convertModelName(modelName);
@@ -540,13 +569,15 @@ export const useShopifyAI = ({
       }
       const { response, rateLimits } = await fetchAPI({
         prompt,
-        category: option,
+        option,
         modelName: normalizedModelName,
         shopName
       });
       apiStateRef.current.rateLimits = rateLimits;
       const completionData = await getParsedData(response);
-      await handleCompletion(modelName, prompt, completionData, rateLimits);
+      Promise.resolve().then(() => {
+        handleCompletion(modelName, prompt, completionText, rateLimits);
+      }).catch(console.error);
       let finalResponse = completionData;
       let modifiedPrompt = { ...prompt };
       if (imageIncluded === 'unsplash') {
@@ -562,16 +593,18 @@ export const useShopifyAI = ({
         };
         const result = await fetchAPI({
           prompt: modifiedPrompt,
-          category: option,
+          option,
           modelName: normalizedModelName,
           shopName
         });
-        finalResponse = result?.response;
-        await handleCompletion(modelName, prompt, finalResponse, result?.rateLimits);
+        finalResponse = await getParsedData(result?.response);
+        Promise.resolve().then(() => {
+          handleCompletion(modelName, prompt, finalResponse, result?.rateLimits);
+        }).catch(console.error);
       }
       const processedData = option.startsWith("CONTENT_") 
-        ? completionData 
-        : await processAIResponse(option, completionData, shopName, articleIncluded, isNewBlog);
+        ? finalResponse 
+        : await processAIResponse(option, finalResponse, shopName, articleIncluded, isNewBlog);
       return {
         success: true,
         data: processedData as T,

@@ -424,7 +424,7 @@ export const creditPackages = [
   {
     id: 'small',
     name: Package.SMALL,
-    displayName: 'Free Starter',
+    displayName: Package.SMALL,
     description: 'Perfect for individuals exploring the platform with basic requirements.',
     shortDescription: 'Start your journey with essential features',
     planLimits: {},
@@ -461,7 +461,7 @@ export const creditPackages = [
   {
     id: 'medium',
     name: Package.MEDIUM,
-    displayName: 'Standard Business',
+    displayName: Package.MEDIUM,
     description: 'Designed for small teams looking to collaborate and grow efficiently.',
     shortDescription: 'Perfect for growing teams',
     planLimits: {},
@@ -506,7 +506,7 @@ export const creditPackages = [
   {
     id: 'large',
     name: Package.LARGE,
-    displayName: 'Pro Growth',
+    displayName:Package.LARGE,
     description: 'Advanced tools and resources for expanding businesses and scaling operations.',
     shortDescription: 'Ideal for businesses looking to scale',
     planLimits: {},
@@ -550,7 +550,7 @@ export const creditPackages = [
   {
     id: 'enterprise',
     name: Package.ENTERPRISE,
-    displayName: 'Ultimate Enterprise',
+    displayName: Package.ENTERPRISE,
     description: 'All-inclusive enterprise solutions for large-scale organizations.',
     shortDescription: 'The ultimate choice for enterprises',  
     planLimits: {},
@@ -603,4 +603,14 @@ export const cancelReasons = [
   { label: 'Other', value: 'OTHER' }
 ];
 
+export const cancellationOptions = [
+  {
+    label: 'Cancel immediately and get a prorated refund',
+    value: 'immediate'
+  },
+  {
+    label: 'Cancel at the end of billing cycle',
+    value: 'end-of-cycle'
+  }
+];
 

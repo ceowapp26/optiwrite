@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { ShopifySessionManager } from '@/utils/storage';
+import { ContentCategory } from '@prisma/client';
 
 interface CONTENT {
   shopName: string;
@@ -31,6 +32,19 @@ enum ContentType {
 export class ContentManager {
   private constructor() {}
 
+  private static readonly categoryMap: Record<string, ContentCategory> = {
+    PRODUCT: ContentCategory.PRODUCT,
+    BLOG: ContentCategory.BLOG,
+    ARTICLE: ContentCategory.ARTICLE
+  };
+
+  private static getCategoryEnum(category?: string): ContentCategory {
+    if (!this.categoryMap) {
+      throw new Error("categoryMap is undefined. Ensure ContentCategory is imported correctly.");
+    }
+    return this.categoryMap[category?.toUpperCase()];
+  }
+
   static async createContent(data: CONTENT) {
     try {
       return await prisma.content.create({
@@ -45,7 +59,7 @@ export class ContentManager {
           description: data.description,
           tags: data.tags,
           status: data.status || 'PUBLISHED',
-          category: data.category,
+          category: this.getCategoryEnum(data.category),
           version: data.version || 1
         }
       });
@@ -69,9 +83,37 @@ export class ContentManager {
     }
   }
 
+  static async getContentByContentId(contentId: string) {
+    try {
+      return await prisma.content.findUnique({
+        where: { contentId },
+        include: {
+          shop: true
+        }
+      });
+    } catch (error) {
+      console.error("Content fetch error:", error);
+      throw new Error('Failed to fetch content');
+    }
+  }
+
+  static async getContentByShopifyId(contentId: string) {
+    try {
+      return await prisma.content.findUnique({
+        where: { contentId },
+        include: {
+          shop: true
+        }
+      });
+    } catch (error) {
+      console.error("Content fetch error:", error);
+      throw new Error('Failed to fetch content');
+    }
+  }
+
   static async getUserContentHistory(
     shopName: string,
-    page: number = 1,
+    pagination: number = 1,
     limit: number = 20,
     filters?: {
       status?: ContentStatus;
@@ -86,7 +128,7 @@ export class ContentManager {
       if (!shop) {
         throw new Error('No shop found!');
       }
-      const skip = (page - 1) * limit;
+      const skip = (pagination - 1) * limit;
       const whereClause: any = {
         shopId: shop.id,
         ...(filters?.status && { status: filters.status }),
@@ -104,7 +146,7 @@ export class ContentManager {
           where: whereClause,
           orderBy: { createdAt: 'desc' },
           skip,
-          take: limit
+          take: pagination * limit
         }),
         prisma.content.count({ where: whereClause })
       ]);
@@ -113,7 +155,7 @@ export class ContentManager {
         contents,
         metadata: {
           total,
-          page,
+          pagination,
           limit,
           totalPages: Math.ceil(total / limit)
         }
@@ -160,11 +202,14 @@ export class ContentManager {
       if (!existingContent) {
         throw new Error("Content not found");
       }
-
+      const mergedData = {
+        ...existingContent,
+        ...data,
+      };
       return await prisma.content.update({
         where: { id: contentId },
         data: {
-          ...data,
+          ...mergedData,
           version: { increment: 1 },
           lastEditedAt: new Date()
         }
@@ -178,8 +223,7 @@ export class ContentManager {
   
   static async deleteContent(contentId: string, shopId: string) {
     try {
-      const content = await this.getContentById(contentId);
-      if (!content || content.shopId !== shopId) {
+      if (!contentId || !shopId) {
         throw new Error("Content not found or unauthorized");
       }
       await prisma.content.delete({

@@ -297,7 +297,7 @@ export class PlanManager {
       const updateData: any = {
         ...(data.name && { name: data.name }),
         ...(data.description !== undefined && { description: data.description }),
-        ...(data.price !== undefined && { price: data.price }),
+        ...(data.totalPrice !== undefined && { price: data.totalPrice }),
         ...(data.interval && { interval: data.interval }),
         ...(data.trialDays !== undefined && { trialDays: data.trialDays }),
         ...(data.shopifyId && { shopifyId: data.shopifyId }),
@@ -475,7 +475,7 @@ export class PlanManager {
             }
           }
         },
-        orderBy: { price: 'asc' }
+        orderBy: { totalPrice: 'asc' }
       });
     } catch (error) {
       console.error("Plans fetch error:", error);
@@ -489,7 +489,7 @@ export class PlanManager {
         where: { id: planId },
         data: {
           name: shopifyPlan.name,
-          price: parseFloat(shopifyPlan.price),
+          price: parseFloat(shopifyPlan.totalPrice),
           trialDays: shopifyPlan.trial_days,
           shopifyId: shopifyPlan.id, 
         },

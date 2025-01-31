@@ -14,6 +14,8 @@ import { getSessionToken } from "@shopify/app-bridge/utilities";
 import { allowedOrigins, corsHeaders, DOMAIN } from '@/configs/sites';
 import { beginAuth } from "../auth";
 
+export const maxDuration = 60;
+
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const shop = url.searchParams.get("shop");
@@ -32,14 +34,14 @@ export async function GET(req: NextRequest) {
     const onlineSession = await ShopifySessionManager.storeSessionToStorage(session);
     await WebhookManager.registerWebhooks(session);
     let redirectUrl;
-    const baseUrl = `${process.env.SHOPIFY_HOST}/versions`;
+    const baseUrl = `${process.env.SHOPIFY_HOST}/home`;
     const queryParams = generateQueryParams(shop, host);
     if (onlineSession) {
       const encodedEmail = encodeURIComponent(onlineSession.email);
       const encodedSessionId = encodeURIComponent(onlineSession.sessionId);
       redirectUrl = `${baseUrl}?ssid=${encodedEmail}&sml=${encodedSessionId}&${queryParams.toString()}`;
     } else {
-      redirectUrl = `${baseUrl}/light?${queryParams.toString()}`;
+      redirectUrl = `${baseUrl}?${queryParams.toString()}`;
     }
     const response = NextResponse.redirect(redirectUrl);
     const existingCookies = response.headers.get('Set-Cookie')?.split(', ') || [];

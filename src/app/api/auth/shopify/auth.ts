@@ -1,6 +1,8 @@
 import { shopify } from "@/lib/shopify";
 import { NextRequest, NextResponse } from 'next/server';
 
+export const maxDuration = 60;
+
 export function beginAuth(
   shop: string, 
   req: NextRequest, 

@@ -25,10 +25,17 @@ interface FullVersionFormProps extends BaseFormProps {
 
 const FullVersionForm: React.FC<FullVersionFormProps> = (
   { 
+    theme,
     prompt, 
     onPromptChange, 
     urls, 
     blogs,
+    onLoadMoreBlogs,
+    loadingMoreBlogs,
+    isBlogLoading,
+    blogLoadingError,
+    loadingBlogProgress,
+    totalBlogs,
     errors,
     onUrlChange, 
     onAddUrl, 
@@ -74,10 +81,17 @@ const FullVersionForm: React.FC<FullVersionFormProps> = (
     <FormProvider 
       formId={FormType.FULL} 
       {...{
+        theme,
         prompt, 
         onPromptChange, 
         urls,
         blogs,
+        onLoadMoreBlogs,
+        loadingMoreBlogs,
+        isBlogLoading,
+        blogLoadingError,
+        loadingBlogProgress,
+        totalBlogs,
         errors, 
         onUrlChange, 
         onAddUrl, 

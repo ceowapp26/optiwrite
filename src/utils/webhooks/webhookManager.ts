@@ -12,6 +12,7 @@ import { clearCookies } from '@/actions/auth';
 import { Installations } from '@/utils/auth/shopify';
 import { DOMAIN } from '@/configs/sites';
 import { shopify } from "@/lib/shopify";
+import { DateTime } from 'luxon';
 
 export class WebhookManager {
   private constructor() {}
@@ -236,18 +237,13 @@ export class WebhookManager {
       await prisma.$transaction(async (tx) => {
         console.log('Transaction context:', tx);
         await tx.webhookLog.create({
-            data: { topic, shopId: shop, payload }
+            data: { 
+              topic, 
+              shopName: shop, 
+              payload,
+              createdAt: DateTime.utc().toJSDate()
+            }
         });
-        const oldLogs = await tx.webhookLog.findMany({
-         where: { shopId: shop },
-         orderBy: { createdAt: 'asc' },
-         take: Math.max(0, await tx.webhookLog.count({ where: { shopId: shop } }) - this.MAX_LOGS)
-        });
-        if (oldLogs && oldLogs.length > 0) {
-         await tx.webhookLog.deleteMany({
-           where: { id: { in: oldLogs.map(log => log.id) } }
-         });
-        }
       });
     } catch (error) {
       console.error('Error in logWebhook:', error);
@@ -279,7 +275,7 @@ export class WebhookManager {
       }
       const completedUninstallEvent = await prisma.webhookLog.findFirst({
         where: {
-          shopId: shop,
+          shopName: shop,
           topic: 'APP_UNINSTALLED_COMPLETED',
         },
         orderBy: {
@@ -295,10 +291,11 @@ export class WebhookManager {
         await prisma.webhookLog.create({
           data: {
             topic: 'APP_UNINSTALLED_COMPLETED',
-            shopId: shop,
+            shopName: shop,
+            createdAt: DateTime.utc().toJSDate(),
             payload: {
               status: "COMPLETED",
-              completedAt: new Date()
+              completedAt: DateTime.utc().toJSDate()
             }
           }
         });
@@ -306,7 +303,8 @@ export class WebhookManager {
         await prisma.webhookLog.create({
           data: {
             topic: 'APP_UNINSTALLED_ERROR',
-            shopId: shop,
+            shopName: shop,
+            createdAt: DateTime.utc().toJSDate(),
             payload: {
               error: deleteError.message,
               stack: deleteError.stack
@@ -323,7 +321,8 @@ export class WebhookManager {
       await prisma.webhookLog.create({
         data: {
           topic: 'APP_UNINSTALLED_ERROR',
-          shopId: shop,
+          shopName: shop,
+          createdAt: DateTime.utc().toJSDate(),
           payload: {
             error: error.message,
             stack: error.stack
@@ -355,47 +354,36 @@ export class WebhookManager {
     }
     const subscription_id = admin_graphql_api_id.split('/').pop() || '';
     try {
-      const currentSubscription = await SubscriptionManager.getCurrentSubscription(shop);
+      const existingWebhook = await this.checkExistingUpateEvent(shop, subscription_id, status);
+      if (existingWebhook) {
+        console.log('Subscription event already processed');
+        return;
+      }
+      await this.logWebhook('SUBSCRIPTIONS_UPDATE', shop, {
+        status,
+        payload
+      });
+      const currentSubscription = await SubscriptionManager.getSubscriptionByShopifySubscriptionId(subscription_id);
       if (!currentSubscription) {
-        console.log('No subscription found in webhook handler - this should not happen');
+        console.log('No subscription found in webhook handler');
+        return;
+      }
+      if (currentSubscription.shopifySubscriptionId !== subscription_id) {
+        console.log('Subscription ID mismatch in webhook handler');
         return;
       }
       const lastAssociatedUser = currentSubscription.associatedUsers?.[currentSubscription.associatedUsers.length - 1];
       const userEmail = lastAssociatedUser?.associatedUser?.email;
-      const cancelReason = "Subscription canceled!!";
-      switch(status) {
-        case 'ACTIVE':
-          await this.logWebhook('SUBSCRIPTION_ACTIVE', shop, {
-            subscription_id,
-            planName,
-            status,
-            userEmail
-          });
-          break;
-        case 'INACTIVE':
-        case 'FROZEN':
-        case 'CANCELLED':
-        case 'EXPIRED':
-          await this.logWebhook('SUBSCRIPTION_CANCELED', shop, {
-            subscription_id,
-            planName,
-            status
-          });
-          await SubscriptionManager.cancel(shop, cancelReason, userEmail);
-          break;
-        default:
-          console.log(`Unhandled subscription status: ${status}`);
-          await this.logWebhook('UNHANDLED_SUBSCRIPTION_STATUS', shop, {
-            status,
-            payload
-          });
-      }
+      await WebhookQueue.enqueueSubscriptionUpdate(
+        shop,
+        subscription_id,
+        payload.app_subscription,
+        status,
+        userEmail,
+        payload
+      );
     } catch (error) {
       console.error('Error in handleSubscriptionUpdate:', error);
-      await this.logWebhook('SUBSCRIPTION_UPDATE_ERROR', shop, {
-        error: error.message,
-        payload
-      });
       throw error;
     }
   }
@@ -461,10 +449,6 @@ export class WebhookManager {
 
     } catch (error) {
       console.error('Error in handleCreditUpdate:', error);
-      await this.logWebhook('CREDIT_PURCHASE_ERROR', shop, {
-        error: error.message,
-        payload
-      });
       throw error;
     }
   }
@@ -475,7 +459,7 @@ export class WebhookManager {
       if (usageState.isApproachingLimit) {
         const subscription = await prisma.subscription.findFirst({
           where: { 
-            shopId: shop,
+            shopName: shop,
             status: SubscriptionStatus.ACTIVE 
           },
           include: {
@@ -485,7 +469,7 @@ export class WebhookManager {
         await prisma.webhookLog.create({
           data: {
             topic: 'APP_SUBSCRIPTIONS_APPROACHING_CAPPED_AMOUNT',
-            shopId: shop,
+            shopName: shop,
             payload: {
               ...payload,
               usageState,
@@ -501,6 +485,44 @@ export class WebhookManager {
       console.error('Error in handleAppSubscriptionsApproachingCappedAmount:', error);
       throw error;
     }
+  }
+
+  static isValidStatusTransition(currentStatus: string, newStatus: string): boolean {
+    const validTransitions = {
+      'ACTIVE': ['INACTIVE', 'FROZEN', 'CANCELLED', 'EXPIRED'],
+      'INACTIVE': ['ACTIVE', 'CANCELLED', 'EXPIRED'],
+      'FROZEN': ['ACTIVE', 'CANCELLED', 'EXPIRED'],
+      'CANCELLED': [], 
+      'EXPIRED': []  
+    };
+    return validTransitions[currentStatus]?.includes(newStatus) ?? false;
+  }
+
+  static async checkExistingUpateEvent(shop: string, subscription_id: string, status: string): boolean {
+    const existingWebhook = await prisma.webhookLog.findFirst({
+      where: {
+        topic: 'SUBSCRIPTIONS_UPDATE',
+        shopName: shop,
+        createdAt: {
+          gt: new Date(Date.now() - 30 * 60 * 1000) 
+        },
+        AND: [
+          {
+            payload: {
+              path: ['subscription_id'],
+              equals: subscription_id
+            }
+          },
+          {
+            payload: {
+              path: ['status'],
+              equals: status
+            }
+          }
+        ]
+      }
+    });
+    return !!existingWebhook;
   }
 
   static async validateWebhookPayload(topic: string, shop: string, payload: any) {

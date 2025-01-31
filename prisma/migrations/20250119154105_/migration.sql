@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE "AIFeature" ALTER COLUMN "conversionRate" SET DATA TYPE DOUBLE PRECISION;
+
+-- AlterTable
+ALTER TABLE "CrawlFeature" ALTER COLUMN "conversionRate" SET DATA TYPE DOUBLE PRECISION;

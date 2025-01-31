@@ -46,15 +46,23 @@ interface ServiceUsageState {
 export async function updateUsageAction(    
     shopName: string,
     service: Service,
+    usageState: any,
     serviceDetails?: ServiceDetails,
-    userId?: string
+    userId?: string,
+    email?: string
 ) {
   return await UsageManager.updateServiceUsage(
     shopName, 
     service, 
+    usageState,
     serviceDetails,
-    userId
+    userId, 
+    email
   );
+}
+
+export async function handleUsageNotificationAction(usageState: ServiceUsageState, shopName: string, email: string) {
+  return await UsageManager.handleUsageNotification(usageState, shopName, email);
 }
 
 export async function resetUsageCountsAction(
@@ -63,8 +71,8 @@ export async function resetUsageCountsAction(
   return await UsageManager.resetUsageCounts(shopName);
 }
 
-export async function getUsageStateAction(shopName: string) {
-  return await UsageManager.getUsageState(shopName);
+export async function getUsageStateAction(shopName: string, email?: string) {
+  return await UsageManager.getUsageState(shopName, email);
 }
 
 export async function getSubscriptionDetailsAction(shopName: string) {

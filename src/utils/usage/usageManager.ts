@@ -1,8 +1,9 @@
-import { PrismaClient, Prisma, Shop, ModelName, Service, ServiceUsage, SubscriptionStatus, PackageStatus, Usage, Payment, PaymentStatus, AIUsageDetails } from '@prisma/client';
-import { ShopifySessionManager } from '@/utils/storage';
-import { SubscriptionManager } from '@/utils/billing';
-import { MathUtils } from '@/utils/utilities/mathUtils';
+import { PrismaClient, Prisma, Shop, ModelName, Service, ServiceUsage, SubscriptionStatus, PackageStatus, Usage, Payment, PaymentStatus, AIUsageDetails, SubscriptionPlan, Subscription, NotificationType } from '@prisma/client';
+import { ShopifySessionManager, ModelManager } from '@/utils/storage';
+import { SubscriptionManager, PlanManager } from '@/utils/billing';
 import { prisma } from '@/lib/prisma';
+import { DateTime } from 'luxon';
+import emailService, { EmailServiceError, EmailResponse } from '@/utils/email/emailService';
 
 interface AIDetails {
   modelName: ModelName;
@@ -26,11 +27,6 @@ interface UsageBaseParams {
 interface AIUsageParams extends UsageBaseParams {
   totalTokens?: number;
   aiDetails: AIDetails;
-}
-
-interface UserIds {
-  googleUserId?: string;
-  associatedUserId?: string;
 }
 
 interface ServiceUsageState {
@@ -121,19 +117,59 @@ export class UsageManager {
     [Service.CRAWL_API]: 1
   };
 
-  private static readonly TOTAL_CONVERSION_RATE = 1.1;
+  static readonly Errors = {
+    SHOP_NOT_FOUND: 'Shop not found',
+    SUBSCRIPTION_NOT_FOUND: 'No active subscription found',
+    PAYMENT_NOT_FOUND: 'No previous payment found for subscription',
+    INVALID_PLAN: 'Invalid subscription plan',
+    TRANSACTION_FAILED: 'Transaction failed',
+    PAYMENT_FAILED: 'Payment processing failed',
+    INVALID_DATES: 'Invalid subscription dates',
+    MISSING_PARAMETERS: 'Missing required parameters',
+    NO_ACTIVATION_EMAIL: 'No email provided for subscription activation notification',
+    NO_EXPIRATION_EMAIL: 'No email provided for subscription expiration notification'
+  } as const;
 
-  private static calculateCreditsNeeded(service: Service, calls: number): number {
-    return calls * UsageManager.CREDIT_CONVERSION[service];
+  private static async executeTransaction<T>(
+    operation: (tx: PrismaClient) => Promise<T>,
+    errorMessage: string
+  ): Promise<T> {
+    try {
+      return await prisma.$transaction(operation, {
+        timeout: this.TRANSACTION_TIMEOUT,
+        maxWait: this.MAX_WAIT,
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable
+      });
+    } catch (error) {
+      console.error(`${errorMessage}:`, error);
+      throw new Error(`${errorMessage}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
-  private static calculateCreditsForService(service: Service, totalCredits: number): number {
-    const conversionRate = this.CREDIT_CONVERSION[service];
-    if (conversionRate === undefined) {
-      throw new Error(`Service ${service} not found in CREDIT_CONVERSION.`);
-    }
-    const result = (totalCredits * conversionRate) / this.TOTAL_CONVERSION_RATE;
-    return MathUtils.floor(result, 2);
+  private static calculateServiceCreditRate(
+    service: Service,
+    feature: any,
+    creditLimits: number
+  ): number {
+    const serviceLimit = service === Service.AI_API 
+      ? feature.aiAPI.requestLimits 
+      : feature.crawlAPI.requestLimits;
+    return creditLimits / serviceLimit;
+  }
+
+  private static calculateCreditsNeeded(
+    service: Service, 
+    calls: number,
+    feature: any,
+    creditLimits: number
+  ): number {
+    const creditRate = this.calculateServiceCreditRate(service, feature, creditLimits);
+    return calls * creditRate;
+  }
+
+  private static isValidEmail(email: string): boolean {
+    const emailRegex = /^(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])$/i;
+    return emailRegex.test(email);
   }
 
   /**
@@ -168,30 +204,36 @@ export class UsageManager {
   static async updateServiceUsage(
     shopName: string,
     service: Service,
+    usageState: UsageState,
     serviceDetails?: ServiceDetails,
-    userId?: string
+    userId?: string,
+    email?: string
   ): Promise<void> {
     const shop = await ShopifySessionManager.findShopByName(shopName);
     if (!shop) {
-      throw new Error(`Shop not found: ${shopName}`);
+      throw new Error(this.Errors.SHOP_NOT_FOUND);
     }
     try {
+      await this.handleUsageNotification(usageState, shop?.id, shopName, email);
       await prisma.$transaction(async (tx) => {
         const remainingRequests = await this.deductFromSubscription(
           tx,
-          shopName,
           shop.id,
+          shopName,
           service,
           serviceDetails,
-          userId
+          userId, 
+          email
         );
         if (remainingRequests > 0) {
           await this.deductFromCreditPackages(
             tx,
             shop.id,
+            shopName,
             service,
             serviceDetails,
-            userId
+            userId,
+            email
           );
         }
       }, {
@@ -246,13 +288,76 @@ export class UsageManager {
       );
       const limits = {
         requestLimits: service === Service.AI_API ? feature.aiAPI.requestLimits : feature.crawlAPI.requestLimits,
+        creditLimits: service === Service.AI_API ? feature.aiAPI.creditLimits : feature.crawlAPI.creditLimits,
         tokenLimits: service === Service.AI_API ? feature.aiAPI.tokenLimits : undefined,
-        creditLimits: service === Service.AI_API ? feature.aiAPI.creditLimits : feature.crawlAPI.creditLimits
+        conversionRate: service === Service.AI_API ? feature.aiAPI.conversionRate : feature.crawlAPI.conversionRate,
       };
       if (feature) {
         await this.findOrCreateServiceUsage(tx, usage.id, service, serviceDetails, limits);
       }
       return usage;
+    });
+  }
+
+  private static async findOrCreateServiceUsage(
+    tx: Prisma.TransactionClient,
+    usageId: string,
+    service: Service,
+    serviceDetails?: ServiceDetails,
+    limits?: { requestLimits: number; tokenLimits?: number, creditLimits?: number, conversionRate?: number }
+  ): Promise<ServiceUsage> {
+    const now = new Date();
+    if (!limits) {
+      throw new Error('Usage limits are required');
+    }
+    let aiUsageDetailsId: string | undefined;
+    let crawlUsageDetailsId: string | undefined;
+    if (service === Service.AI_API && serviceDetails?.aiDetails) {
+      const aiDetails = await tx.aIUsageDetails.create({
+        data: {
+          modelName: serviceDetails.aiDetails.modelName,
+          inputTokensCount: serviceDetails.aiDetails.inputTokens,
+          outputTokensCount: serviceDetails.aiDetails.outputTokens,
+          tokensConsumedPerMinute: serviceDetails.aiDetails.inputTokens + serviceDetails.aiDetails.outputTokens,
+          tokensConsumedPerDay: serviceDetails.aiDetails.inputTokens + serviceDetails.aiDetails.outputTokens,
+          requestsPerMinuteLimit: serviceDetails.aiDetails.requestsPerMinuteLimit,
+          requestsPerDayLimit: serviceDetails.aiDetails.requestsPerDayLimit,
+          totalRequests: limits?.requestLimits ?? 0,
+          totalRequestsUsed: serviceDetails.aiDetails?.totalRequests,
+          totalRemainingRequests: (limits?.requestLimits ?? 0) - serviceDetails.aiDetails?.totalRequests,
+          totalTokens: limits?.tokenLimits ?? 0,
+          totalTokensUsed: serviceDetails.aiDetails.inputTokens + serviceDetails.aiDetails.outputTokens,
+          totalRemainingTokens: (limits?.tokenLimits ?? 0) - (serviceDetails.aiDetails.inputTokens + serviceDetails.aiDetails.outputTokens),
+          totalCredits: limits.creditLimits ?? 0,
+          totalCreditsUsed:  serviceDetails.aiDetails?.totalRequests * limits.conversionRate ?? serviceDetails.aiDetails?.totalRequests * this.CREDIT_CONVERSION[Service.AI_API],
+          totalRemainingCredits: Math.min(0, ((limits?.creditLimits ?? 0) - (serviceDetails.aiDetails?.totalRequests * limits.conversionRate ?? serviceDetails.aiDetails?.totalRequests * this.CREDIT_CONVERSION[Service.AI_API]))),
+          lastTokenUsageUpdateTime: now
+        }
+      });
+      aiUsageDetailsId = aiDetails.id;
+    } else if (service === Service.CRAWL_API) {
+      const crawlDetails = await tx.crawlUsageDetails.create({
+        data: {
+          totalRequests: limits?.requestLimits ?? 0,
+          totalRequestsUsed: serviceDetails.crawlDetails?.totalRequests,
+          totalRemainingRequests: (limits?.requestLimits ?? 0) - serviceDetails.crawlDetails?.totalRequests,
+          totalCredits: limits.creditLimits ?? 0,
+          totalCreditsUsed:  serviceDetails.crawlDetails?.totalRequests * limits.conversionRate ?? serviceDetails.crawlDetails?.totalRequests * this.CREDIT_CONVERSION[Service.AI_API],
+          totalRemainingCredits: Math.min(0, ((limits?.creditLimits ?? 0) - (serviceDetails.crawlDetails?.totalRequests * limits.conversionRate ?? serviceDetails.crawlDetails?.totalRequests * this.CREDIT_CONVERSION[Service.AI_API]))),
+        }
+      });
+      crawlUsageDetailsId = crawlDetails.id;
+    }
+    return tx.serviceUsage.create({
+      data: {
+        usageId,
+        ...(aiUsageDetailsId && { aiUsageId: aiUsageDetailsId }),
+        ...(crawlUsageDetailsId && { crawlUsageId: crawlUsageDetailsId })
+      },
+      include: {
+        aiUsageDetails: true,
+        crawlUsageDetails: true
+      }
     });
   }
 
@@ -267,7 +372,6 @@ export class UsageManager {
   ): Promise<void> {
     try {
       const now = new Date();
-      const totalCredits = this.calculateCreditsNeeded(service, limits?.creditLimits);
       if (service === Service.AI_API && serviceDetails?.aiDetails) {
         const tokensPerRequest = serviceDetails.aiDetails.inputTokens + serviceDetails.aiDetails.outputTokens;
         const totalTokensUsed = tokensPerRequest * requestsToDeduct;
@@ -295,9 +399,9 @@ export class UsageManager {
             totalTokens: limits?.tokenLimits ?? 0,
             totalTokensUsed: { increment: totalTokensUsed },
             totalRemainingTokens: (limits?.tokenLimits ?? 0) - newTotalTokensUsed,
-            totalCredits: totalCredits,
-            totalCreditsUsed: { increment: creditsToDeduct },
-            totalRemainingCredits: totalCredits - newTotalCreditsUsed,
+            totalCredits: limits.creditLimits ?? 0,
+            totalCreditsUsed: { increment: creditsToDeduct ?? 0 },
+            totalRemainingCredits: (limits?.creditLimits ?? 0) - newTotalCreditsUsed,
             resetTimeForMinuteRequests: this.convertUnixTimestampToSupabaseDateTime(
               serviceDetails.aiDetails.resetTimeForMinuteRequests
             ),
@@ -307,19 +411,22 @@ export class UsageManager {
             lastTokenUsageUpdateTime: timeDiff > this.TIME_MINUTE_LIMIT ? now : existingUsage.aiUsageDetails?.lastTokenUsageUpdateTime,
           },
         });
+        return newTotalCreditsUsed;
       } else if (service === Service.CRAWL_API && serviceDetails?.crawlDetails) {
         const newTotalRequestsUsed = (existingUsage.crawlUsageDetails?.totalRequestsUsed ?? 0) + requestsToDeduct;
+        const newTotalCreditsUsed = (existingUsage.crawlUsageDetails?.totalCreditsUsed ?? 0) + (creditsToDeduct ?? 0);
         await tx.crawlUsageDetails.update({
           where: { id: existingUsage.crawlUsageId },
           data: {
             totalRequests: limits?.requestLimits ?? 0,
             totalRequestsUsed: { increment: requestsToDeduct },
             totalRemainingRequests: (limits?.requestLimits ?? 0) - newTotalRequestsUsed,
-            totalCredits: totalCredits,
-            totalCreditsUsed: { increment: creditsToDeduct },
-            totalRemainingCredits: totalCredits - (existingUsage.crawlUsageDetails?.totalCreditsUsed ?? 0 + creditsToDeduct),
+            totalCredits: limits.creditLimits ?? 0,
+            totalCreditsUsed: { increment: creditsToDeduct ?? 0 },
+            totalRemainingCredits: (limits?.creditLimits ?? 0) - newTotalCreditsUsed,
           },
         });
+        return newTotalCreditsUsed;
       }
     } catch (error) {
       console.error('Error updating service usage:', error);
@@ -329,17 +436,17 @@ export class UsageManager {
 
   private static async deductFromSubscription(
     tx: Prisma.TransactionClient,
-    shopName: stripng,
     shopId: string,
+    shopName: stripng,
     service: Service,
     serviceDetails?: ServiceDetails,
-    userId?: string
+    userId?: string,
+    email?: string
   ): Promise<number> {
-    const calls = service === Service.AI_API ? serviceDetails.aiDetails.totalRequests : serviceDetails.crawlDetails.totalRequests;
-    let remainingCalls = calls;
-    const subscription = await SubscriptionManager.getCurrentSubscription(shopName);
+    const subscription = await SubscriptionManager.getCurrentSubscription(shopName, email);
+    let calls = service === Service.AI_API ? serviceDetails.aiDetails.totalRequests : serviceDetails.crawlDetails.totalRequests;
     const subscriptionCreditLimits = subscription?.creditBalance || subscription?.plan?.creditAmount;
-    if (subscription?.status !== SubscriptionStatus.ACTIVE) {
+    if (![SubscriptionStatus.ACTIVE, SubscriptionStatus.ON_HOLD, SubscriptionStatus.TRIAL].includes(subscription?.status)) {
       return calls;
     }
     const feature = await this.getServiceFeature(tx, subscription.planId, service);
@@ -349,53 +456,51 @@ export class UsageManager {
     const limits = {
       requestLimits: service === Service.AI_API ? feature.aiAPI.requestLimits : feature.crawlAPI.requestLimits,
       tokenLimits: service === Service.AI_API ? feature.aiAPI.tokenLimits : undefined,
-      creditLimits: service === Service.AI_API ? feature.aiAPI.creditLimits : feature.crawlAPI.creditLimits
+      creditLimits: service === Service.AI_API ? feature.aiAPI.creditLimits : feature.crawlAPI.creditLimits,
+      conversionRate: service === Service.AI_API ? feature.aiAPI.conversionRate : feature.crawlAPI.conversionRate,
     };
     const usage = await this.findOrCreateUsage(tx, shopId, 'subscription', subscription.id, service, serviceDetails);
-    const currentUsage = service === Service.AI_API 
+    const currentUsedRequests = service === Service.AI_API 
       ? usage.serviceUsage.aiUsageDetails.totalRequestsUsed 
       : usage.serviceUsage.crawlUsageDetails.totalRequestsUsed;
+   const currentUsedCredits = service === Service.AI_API 
+      ? usage.serviceUsage.aiUsageDetails.totalCreditsUsed 
+      : usage.serviceUsage.crawlUsageDetails.totalCreditsUsed;
     const requestLimit = service === Service.AI_API 
       ? feature.aiAPI.requestLimits 
       : feature.crawlAPI.requestLimits;
     const creditLimit = service === Service.AI_API 
       ? feature.aiAPI.creditLimits 
       : feature.crawlAPI.creditLimits;
-    const availableRequests = requestLimit - (currentUsage ?? 0);
-    const availableCredits = creditLimit - (usage.totalCreditsUsed ?? 0);
+    const conversionRate = service === Service.AI_API 
+      ? feature.aiAPI.conversionRate 
+      : feature.crawlAPI.conversionRate;
+    const availableRequests = requestLimit - (currentUsedRequests ?? 0);
+    const availableCredits = creditLimit - (currentUsedCredits ?? 0);
     const requestsToDeduct = Math.min(availableRequests, calls);
-    const creditsToDeduct = Math.min(availableCredits, this.calculateCreditsNeeded(service, requestsToDeduct));
-    const newTotalCreditsUsed = (usage?.totalCreditsUsed ?? 0) + creditsToDeduct;
+    const creditsToDeduct = Math.min(availableCredits, requestsToDeduct * conversionRate);
     if (userId) {
       await this.updateUserConnections(tx, usage.id, userId);
     }
-    if (creditsToDeduct > 0) {
-      await tx.usage.update({
-        where: { id: usage.id },
-        data: {
-          totalCreditsUsed: {
-            increment: creditsToDeduct
-          },
-          totalCredits: subscriptionCreditLimits,
-          totalRemainingCredits: subscriptionCreditLimits - newTotalCreditsUsed, 
-          updatedAt: new Date()
-        }
-      });
-      await this.updateExistingServiceUsage(tx, usage.serviceUsage, service, requestsToDeduct, creditsToDeduct, serviceDetails, limits);
-      remainingCalls -= requestsToDeduct;
+    let newTotalCreditsUsed;
+    if (creditsToDeduct > 0 && requestsToDeduct > 0) {
+      newTotalCreditsUsed = await this.updateExistingServiceUsage(tx, usage.serviceUsage, service, requestsToDeduct, creditsToDeduct, serviceDetails, limits);
+      calls -= requestsToDeduct;
     }
-    if (remainingCalls > 0) {
-      throw new Error('Insufficient credits available');
+    if (Math.max(limits?.creditLimits - newTotalCreditsUsed, 0) === 0) {
+      await this.handleSubscriptionExpired(shopId, shopName, service, subscription, email);
     }
-    return remainingCalls;
+    return calls - requestsToDeduct;
   }
 
   private static async deductFromCreditPackages(
     tx: Prisma.TransactionClient,
     shopId: string,
+    shopName: string,
     service: Service,
     serviceDetails?: ServiceDetails,
-    userId?: string
+    userId?: string,
+    email?: string,
   ): Promise<void> {
     const calls = service === Service.AI_API ? serviceDetails.aiDetails.totalRequests : serviceDetails.crawlDetails.totalRequests;
     const activePackages = await tx.creditPurchase.findMany({
@@ -414,7 +519,8 @@ export class UsageManager {
               }
             }
           }
-        }
+        },
+        creditPackage: true
       }
     });
     let remainingCalls = calls;
@@ -426,68 +532,88 @@ export class UsageManager {
       const limits = {
         requestLimits: service === Service.AI_API ? feature.aiAPI.requestLimits : feature.crawlAPI.requestLimits,
         tokenLimits: service === Service.AI_API ? feature.aiAPI.tokenLimits : undefined,
-        creditLimits: service === Service.AI_API ? feature.aiAPI.creditLimits : feature.crawlAPI.creditLimits
+        creditLimits: service === Service.AI_API ? feature.aiAPI.creditLimits : feature.crawlAPI.creditLimits,
+        conversionRate: service === Service.AI_API ? feature.aiAPI.conversionRate : feature.crawlAPI.conversionRate,
       };
       const usage = await this.findOrCreateUsage(tx, shopId, 'creditPurchase', pkg.id, service, serviceDetails);
-      const currentUsage = service === Service.AI_API
-      ? usage.serviceUsage?.aiUsageDetails?.totalRequestsUsed ?? 0
-      : usage.serviceUsage?.crawlUsageDetails?.totalRequestsUsed ?? 0;
+      const currentUsedRequests = service === Service.AI_API 
+      ? usage.serviceUsage.aiUsageDetails.totalRequestsUsed 
+      : usage.serviceUsage.crawlUsageDetails.totalRequestsUsed;
+      const currentUsedCredits = service === Service.AI_API 
+      ? usage.serviceUsage.aiUsageDetails.totalCreditsUsed 
+      : usage.serviceUsage.crawlUsageDetails.totalCreditsUsed;
       const requestLimit = service === Service.AI_API 
       ? feature.aiAPI.requestLimits 
       : feature.crawlAPI.requestLimits;
       const creditLimit = service === Service.AI_API 
       ? feature.aiAPI.creditLimits 
       : feature.crawlAPI.creditLimits;
-      const availableRequests = limit - currentUsage;
-      const availableCredits = packageCredits - (usage.totalCreditsUsed ?? 0);
+      const conversionRate = service === Service.AI_API 
+      ? feature.aiAPI.conversionRate 
+      : feature.crawlAPI.conversionRate;
+      const availableRequests = requestLimit - (currentUsedRequests ?? 0);
+      const availableCredits = creditLimit - (currentUsedCredits ?? 0);
       const requestsToDeduct = Math.min(availableRequests, remainingCalls);
-      const creditsToDeduct = Math.min(availableCredits, this.calculateCreditsNeeded(service, requestsToDeduct));
-      const newTotalCreditsUsed = (usage?.totalCreditsUsed ?? 0) + creditsToDeduct;
-      if (requestsToDeduct > 0) {
-        await tx.usage.update({
-          where: { id: usage.id },
-          data: {
-            totalCreditsUsed: {
-              increment: creditsToDeduct
-            },
-            totalCredits: packageCredits,
-            totalRemainingCredits: packageCredits - newTotalCreditsUsed, 
-            updatedAt: new Date()
-          }
-        });
-        await this.updateExistingServiceUsage(tx, usage.serviceUsage, service, requestsToDeduct, creditsToDeduct, serviceDetails, limits);
-        if (userId) {
-          await this.updateUserConnections(tx, usage.id, userId);
-        }
-        if (creditsToDeduct > 0) {
-          await tx.creditPurchase.update({
-            where: { id: pkg.id },
-            data: {
-              status: PackageStatus.EXPIRED,
-              updatedAt: new Date()
-            }
-          });
-        }
+      const creditsToDeduct = Math.min(availableCredits, requestsToDeduct * conversionRate);
+      const totalCreditsLimit = feature.aiAPI.creditLimits + feature.crawlAPI.creditLimits;
+      const totalCreditsUsed = usage.serviceUsage.aiUsageDetails.totalCreditsUsed + usage.serviceUsage.crawlUsageDetails.totalCreditsUsed ;
+      if (userId) {
+        await this.updateUserConnections(tx, usage.id, userId);
+      }
+      let newTotalCreditsUsed;
+      if (creditsToDeduct > 0 && requestsToDeduct > 0) {
+        newTotalCreditsUsed = await this.updateExistingServiceUsage(tx, usage.serviceUsage, service, requestsToDeduct, creditsToDeduct, serviceDetails, limits);
         remainingCalls -= requestsToDeduct;
+      }
+      const shouldExpirePackage = totalCreditsUsed >= totalCreditsLimit;
+      if (shouldExpirePackage) {
+        const remainingPackages = activePackages
+          .filter(p => p.id !== pkg.id)
+          .map(p => {
+            const pSnapshot = p.purchaseSnapshot as any;
+            const pCredits = totalCreditsLimit;
+            const pUsageAI = p.usage?.serviceUsage?.aiUsageDetails?.totalCreditsUsed ?? 0;
+            const pUsageCrawl = p.usage?.serviceUsage?.crawlUsageDetails?.totalCreditsUsed ?? 0;
+            const pTotalUsage = pUsageAI + pUsageCrawl;
+            return {
+              ...p,
+              packageName: p.creditPackage.name,
+              remainingCredits: pCredits - pTotalUsage
+            };
+          })
+          .filter(p => p.remainingCredits > 0);
+        await this.handlePackageExpired(
+          shopId,
+          shopName,
+          pkg,
+          remainingPackages,
+          email
+        );
       }
     }
     if (remainingCalls > 0) {
       throw new Error('Insufficient credits available');
     }
-    return remainingCalls;
   }
 
   private static async updateUserConnections(
-    tx: Prisma.TransactionClient,
-    usageId: string,
-    userId: string 
+      tx: Prisma.TransactionClient,
+      usageId: string,
+      userId: string 
   ): Promise<void> {
-    if (!userId) return; 
-    await tx.associatedUserToUsage({
-      data: {
-        usageId,
-        associatedUserId: BigInt(userId)
-      }
+    if (!userId) return;
+    await tx.associatedUserToUsage.upsert({
+      where: {
+        associatedUserId_usageId: {
+          associatedUserId: BigInt(userId),
+          usageId
+        }
+      },
+      create: {
+        associatedUserId: BigInt(userId),
+        usageId
+      },
+      update: {}
     });
   }
 
@@ -522,11 +648,16 @@ export class UsageManager {
     });
   }
 
-  static async getUsageState(shopName: string): Promise<UsageState> {
+  static async getUsageState(shopName: string, email: string): Promise<UsageState> {
     const shop = await prisma.shop.findUnique({
       where: { name: shopName },
       include: {
         subscriptions: {
+          where: {   
+            status: {
+              in: [SubscriptionStatus.TRIAL, SubscriptionStatus.ACTIVE, SubscriptionStatus.ON_HOLD]
+            }
+          },
           where: { status: SubscriptionStatus.ACTIVE },
           include: {
             plan: {
@@ -578,24 +709,19 @@ export class UsageManager {
         }
       }
     });
-    if (!shop) throw new Error('Shop not found');
-    let activeSubscription = await SubscriptionManager.getCurrentSubscription(shopName);
-    if (!activeSubscription) {
-      activeSubscription = await this.createDefaultSubscription(shop?.id);
-      if (!activeSubscription) {
-        throw new Error('Failed to create a default subscription');
-      }
-    }
+    if (!shop) throw new Error(this.Errors.SHOP_NOT_FOUND);
+    const activeSubscription = await SubscriptionManager.getCurrentSubscription(shopName, email);
     const feature = activeSubscription?.plan?.feature;
-    const creditsUsed = this.calculateCreditsUsed(activeSubscription.usage) ?? activeSubscription.usage.totalCreditsUsed ?? 0;
+    const serviceUsage = activeSubscription?.usage?.serviceUsage;
+    const subscriptionCreditsUsed = (serviceUsage?.aiUsageDetails?.totalCreditsUsed + serviceUsage?.crawlUsageDetails?.totalCreditsUsed) ?? 0;
     const subscriptionState = {
       id: activeSubscription?.id ?? null,
       status: activeSubscription?.status ?? SubscriptionStatus.EXPIRED,
-      planName: activeSubscription?.plan?.name ?? 'FREE',
-      creditsUsed,
+      planName: activeSubscription?.plan?.name,
+      creditsUsed: subscriptionCreditsUsed,
       creditLimit: activeSubscription?.plan?.creditAmount,
-      percentageUsed: (creditsUsed / activeSubscription?.plan?.creditAmount) * 100,
-      remainingCredits: activeSubscription?.plan?.creditAmount - creditsUsed,
+      percentageUsed: (subscriptionCreditsUsed / activeSubscription?.plan?.creditAmount) * 100,
+      remainingCredits: activeSubscription?.plan?.creditAmount - subscriptionCreditsUsed,
       serviceUsage: this.calculateSubscriptionServiceUsage(
         activeSubscription?.usage?.serviceUsage ?? null, 
         feature ?? null
@@ -615,14 +741,18 @@ export class UsageManager {
         if (!purchase.usage) {
           throw new Error(`Missing usage data for package ${purchase.id}`);
         }
-        const creditsUsed = this.calculateCreditsUsed(purchase.usage) ?? purchase.usage.totalCreditsUsed ?? 0;
-        const remainingCredits = purchaseSnapshot.creditAmount - totalCreditsUsed;
+        const purchaseServiceUsage = purchase?.usage?.serviceUsage;
+        if (!purchaseServiceUsage) {
+          throw new Error(`Missing usage for package ${purchase.id}`);
+        }
+        const purchaseCreditsUsed = (purchaseServiceUsage?.aiUsageDetails?.totalCreditsUsed + purchaseServiceUsage?.crawlUsageDetails?.totalCreditsUsed) ?? 0;
+        const remainingCredits = purchaseSnapshot.creditAmount - purchaseCreditsUsed;
         return {
           id: purchase.id,
           name: purchase.creditPackage?.name ?? 'Unknown Package',
-          creditsUsed,
+          creditsUsed: purchaseCreditsUsed,
           creditLimit: purchaseSnapshot.creditAmount,
-          percentageUsed: (creditsUsed / purchaseSnapshot.creditAmount) * 100,
+          percentageUsed: (purchaseCreditsUsed / purchaseSnapshot.creditAmount) * 100,
           remainingCredits,
           serviceUsage: this.calculatePackageServiceUsage(
             purchase.usage?.serviceUsage ?? null, 
@@ -672,7 +802,7 @@ export class UsageManager {
         updatedAt: aiUsage?.updatedAt,
         totalCredits: aiUsage.totalCredits,
         totalCreditsUsed: aiUsage.totalCreditsUsed ?? 0,
-        totalRemainingCredits: aiUsage.totalRemainingCredits ?? 0,
+        remainingCredits: aiUsage.totalRemainingCredits ?? 0,
         totalRequests: aiUsage.totalRequests ?? feature.aiAPI.requestLimits,
         totalRequestsUsed: aiUsage.totalRequestsUsed ?? 0,
         remainingRequests: aiUsage.totalRemainingRequests ?? (feature.aiAPI.requestLimits - aiUsage.totalRequestsUsed),
@@ -693,7 +823,7 @@ export class UsageManager {
         updatedAt: crawlUsage?.updatedAt,
         totalCredits: crawlUsage.totalCredits,
         totalCreditsUsed: crawlUsage.totalCreditsUsed ?? 0,
-        totalRemainingCredits: crawlUsage.totalRemainingCredits ?? 0,
+        remainingCredits: crawlUsage.totalRemainingCredits ?? 0,
         totalRequests: crawlUsage.totalRequests ?? feature.crawlAPI.requestLimits,
         totalRequestsUsed: crawlUsage.totalRequestsUsed ?? 0,
         remainingRequests: crawlUsage.totalRemainingRequests ?? (feature.crawlAPI.requestLimits - crawlUsage.totalRequestsUsed),
@@ -722,7 +852,7 @@ export class UsageManager {
       usage[Service.AI_API] = {
         totalCredits: aiUsage.totalCredits,
         totalCreditsUsed: aiUsage.totalCreditsUsed ?? 0,
-        totalRemainingCredits: aiUsage.totalRemainingCredits ?? 0,
+        remainingCredits: aiUsage.totalRemainingCredits ?? 0,
         updatedAt: aiUsage?.updatedAt,
         totalRequests: aiUsage.totalRequests ?? feature.aiAPI.requestLimits,
         totalRequestsUsed: aiUsage.totalRequestsUsed ?? 0,
@@ -737,7 +867,7 @@ export class UsageManager {
         updatedAt: crawlUsage?.updatedAt,
         totalCredits: crawlUsage.totalCredits,
         totalCreditsUsed: crawlUsage.totalCreditsUsed ?? 0,
-        totalRemainingCredits: crawlUsage.totalRemainingCredits ?? 0,
+        remainingCredits: crawlUsage.totalRemainingCredits ?? 0,
         totalRequests: crawlUsage.totalRequests ?? feature.crawlAPI.requestLimits,
         totalRequestsUsed: crawlUsage.totalRequestsUsed ?? 0,
         remainingRequests: crawlUsage.totalRemainingRequests ?? feature.crawlAPI.requestLimits,
@@ -747,7 +877,7 @@ export class UsageManager {
     }
     return usage;
   }
-
+  
   private static calculateTotalUsage(
     subscription: UsageState['subscription'],
     packages: PackageState[]
@@ -757,6 +887,7 @@ export class UsageManager {
       requests: number;
       credits: number;
       limit: number;
+      creditLimit: number;
       percentageUsed: number;
       isApproachingLimit: boolean;
       isOverLimit: boolean;
@@ -765,8 +896,8 @@ export class UsageManager {
         updatedAt: new Date(),
         requests: 0,
         credits: 0,
-        requestLimits: 0,
-        creditLimits: 0,
+        limit: 0,
+        creditLimit: 0,
         percentageUsed: 0,
         isApproachingLimit: false,
         isOverLimit: false
@@ -775,46 +906,65 @@ export class UsageManager {
         updatedAt: new Date(),
         requests: 0,
         credits: 0,
-        requestLimits: 0,
-        creditLimits: 0,
+        limit: 0,
+        creditLimit: 0,
         percentageUsed: 0,
         isApproachingLimit: false,
         isOverLimit: false
       }
     };
     Object.entries(subscription.serviceUsage).forEach(([service, usage]) => {
-      const serviceKey = service as Service;
-      serviceUsage[serviceKey].updatedAt = usage.updatedAt;
-      serviceUsage[serviceKey].requests += usage.totalRequestsUsed;
-      serviceUsage[serviceKey].requestLimits += usage.totalRequests;
-      serviceUsage[serviceKey].creditLimits += usage.totalCredits;
-      serviceUsage[serviceKey].credits += usage.totalRequestsUsed * this.CREDIT_CONVERSION[serviceKey];
-    });
-    packages.forEach(pkg => {
-      Object.entries(pkg.serviceUsage).forEach(([service, usage]) => {
+      try {
         const serviceKey = service as Service;
         serviceUsage[serviceKey].updatedAt = usage.updatedAt;
         serviceUsage[serviceKey].requests += usage.totalRequestsUsed;
         serviceUsage[serviceKey].limit += usage.totalRequests;
-        serviceUsage[serviceKey].creditLimits += usage.totalCredits;
-        serviceUsage[serviceKey].credits += usage.totalRequestsUsed * this.CREDIT_CONVERSION[serviceKey];
-      });
+        serviceUsage[serviceKey].credits += usage.totalCreditsUsed;
+        serviceUsage[serviceKey].creditLimit += usage.totalCredits;
+      } catch (error) {
+        console.error(`Error processing subscription usage for service ${service}:`, error);
+      }
+    });
+    packages.forEach((pkg, index) => {
+      try {
+        Object.entries(pkg.serviceUsage).forEach(([service, usage]) => {
+          const serviceKey = service as Service;
+          serviceUsage[serviceKey].updatedAt = usage.updatedAt;
+          serviceUsage[serviceKey].requests += usage.totalRequestsUsed;
+          serviceUsage[serviceKey].limit += usage.totalRequests;
+          serviceUsage[serviceKey].credits += usage.totalCreditsUsed;
+          serviceUsage[serviceKey].creditLimit += usage.totalCredits;
+        });
+      } catch (error) {
+        console.error(`Error processing package usage for package index ${index}:`, error);
+      }
     });
     Object.keys(serviceUsage).forEach(service => {
-      const key = service as Service;
-      const usage = serviceUsage[key];
-      usage.percentageUsed = usage.limit > 0 ? (usage.requests / usage.limit) * 100 : 0;
-      usage.isApproachingLimit = usage.percentageUsed >= 80;
-      usage.isOverLimit = usage.percentageUsed >= 100;
+      try {
+        const key = service as Service;
+        const usage = serviceUsage[key];
+        usage.percentageUsed = usage.limit > 0 ? (usage.requests / usage.limit) * 100 : 0;
+        usage.isApproachingLimit = usage.percentageUsed >= 80;
+        usage.isOverLimit = usage.percentageUsed >= 100;
+      } catch (error) {
+        console.error(`Error calculating percentages for service ${service}:`, error);
+      }
     });
-    const totalCreditsUsed = Object.values(serviceUsage).reduce((sum, usage) => sum + usage.credits, 0);
-    const totalCreditLimit = Object.entries(serviceUsage).reduce((sum, [serviceKey, usage]) => 
-      sum + (usage.creditLimits * this.CREDIT_CONVERSION[serviceKey as Service]), 0);
-    const remainingCredits = totalCreditLimit - totalCreditsUsed;
+    let totalCreditsUsed = 0;
+    let totalCreditLimit = 0;
+    try {
+      Object.values(serviceUsage).forEach(usage => {
+        totalCreditsUsed += usage.credits;
+        totalCreditLimit += usage.creditLimit;
+      });
+    } catch (error) {
+      console.error('Error calculating total credits:', error);
+    }
+    const remainingCredits = Math.max(0, totalCreditLimit - totalCreditsUsed);
     const totalPercentageUsed = totalCreditLimit > 0 ? (totalCreditsUsed / totalCreditLimit) * 100 : 0;
     return {
       creditsUsed: totalCreditsUsed,
-      creditsLimit: totalCreditLimit,
+      creditLimit: totalCreditLimit,
       remainingCredits,
       percentageUsed: totalPercentageUsed,
       isOverLimit: totalPercentageUsed >= 100,
@@ -831,6 +981,8 @@ export class UsageManager {
     const serviceDetails: UsageState['serviceDetails'] = {};
     const aiUsages = allUsages.map(u => u.aiUsageDetails).filter(u => u !== null);
     if (aiUsages.length > 0) {
+      const percentageUsed = (aiUsages.reduce((sum, usage) => sum + (usage.totalCreditsUsed ?? 0), 0) / 
+        aiUsages.reduce((sum, usage) => sum + (usage.totalCredits ?? 0), 0)) * 100;
       serviceDetails[Service.AI_API] = {
         updatedAt: aiUsages[0]?.updatedAt,
         totalCredits: aiUsages.reduce((sum, usage) => sum + (usage.totalCredits ?? 0), 0),
@@ -848,6 +1000,9 @@ export class UsageManager {
         inputTokens: aiUsages.reduce((sum, usage) => sum + (usage.inputTokensCount ?? 0), 0),
         outputTokens: aiUsages.reduce((sum, usage) => sum + (usage.outputTokensCount ?? 0), 0),
         model: aiUsages[0]?.modelName ?? '',
+        percentageUsed,
+        isOverLimit: percentageUsed >= 100,
+        isApproachingLimit: percentageUsed >= 80,
         rateLimits: {
           requestsPerMinuteLimit: aiUsages.reduce((sum, usage) => sum + (usage.requestsPerMinuteLimit ?? 0), 0),
           requestsPerDayLimit: aiUsages.reduce((sum, usage) => sum + (usage.requestsPerDayLimit ?? 0), 0),
@@ -864,6 +1019,8 @@ export class UsageManager {
     }
     const crawlUsages = allUsages.map(u => u.crawlUsageDetails).filter(u => u !== null);
     if (crawlUsages.length > 0) {
+      const percentageUsed = (crawlUsages.reduce((sum, usage) => sum + (usage.totalCreditsUsed ?? 0), 0) / 
+        crawlUsages.reduce((sum, usage) => sum + (usage.totalCredits ?? 0), 0)) * 100;
       serviceDetails[Service.CRAWL_API] = {
         updatedAt: crawlUsages[0]?.updatedAt,
         totalCredits: crawlUsages.reduce((sum, usage) => sum + (usage.totalCredits ?? 0), 0),
@@ -873,82 +1030,14 @@ export class UsageManager {
         totalRequestsUsed: crawlUsages.reduce((sum, usage) => sum + (usage.totalRequestsUsed ?? 0), 0),
         totalRemainingRequests: crawlUsages.reduce((sum, usage) => 
           sum + ((usage.totalRequests ?? 0) - (usage.totalRequestsUsed ?? 0)), 0),
-        percentageUsed: crawlUsages.reduce((sum, usage) => sum + (usage.totalRequestsUsed ?? 0), 0) / crawlUsages.reduce((sum, usage) => sum + (usage.totalRequests ?? 0), 0),
+        percentageUsed,
+        isOverLimit: percentageUsed >= 100,
+        isApproachingLimit: percentageUsed >= 80,
       };
     } else {
       serviceDetails[Service.CRAWL_API] = this.getDefaultCrawlServiceDetails();
     }
     return serviceDetails;
-  }
-
-  private static async createDefaultSubscription(
-    shopId: string
-  ): Promise<Subscription> {
-    const freePlan = await PlanManager.getPlanByName(SubscriptionPlan.FREE);
-    if (!freePlan) throw new Error('Free plan not found');
-    const model = await ModelManager.getLatestModel();
-    if (!model) throw new Error('Model not found');
-    const now = DateTime.now();
-    const aiApiCredits = this.calculateCreditsForService(Service.AI_API, freePlan?.creditAmount);
-    const crawlApiCredits = freePlan?.creditAmount - aiApiCredits;
-    const startDate = now.startOf('day');
-    const endDate = startDate.plus({ months: 1 });
-    const usage = await tx.usage.create({
-      data: {
-        shop: { connect: { id: shop.id } },
-        serviceUsage: {
-          create: {
-            aiUsageDetails: {
-              create: {
-                service: Service.AI_API,
-                modelName: model.name,
-                inputTokensCount: 0,
-                outputTokensCount: 0,
-                totalRequests: freePlan?.feature?.aiAPI?.requestLimits ?? 0,
-                totalRemainingRequests: freePlan?.feature?.aiAPI?.requestLimits ?? 0,
-                totalRequestsUsed: 0,
-                requestsPerMinuteLimit: freePlan?.feature?.aiAPI?.RPM ?? 0,
-                requestsPerDayLimit: freePlan?.feature?.aiAPI?.RPD ?? 0,
-                remainingRequestsPerMinute: freePlan?.feature?.aiAPI?.RPM ?? 0,
-                remainingRequestsPerDay: freePlan?.feature?.aiAPI?.RPD ?? 0,
-                resetTimeForMinuteRequests: now,
-                resetTimeForDayRequests: now,
-                tokensConsumedPerMinute: 0,
-                tokensConsumedPerDay: 0,
-                totalTokens: freePlan?.feature?.aiAPI?.totalTokens ?? 0,
-                totalTokensUsed: freePlan?.feature?.aiAPI?.totalTokens ?? 0,
-                totalCredits: aiApiCredits ?? 0,
-                totalCreditsUsed: 0,
-                totalRemainingCredits: aiApiCredits ?? 0,
-                lastTokenUsageUpdateTime: now
-              }
-            },
-            crawlUsageDetails: {
-              create: {
-                service: Service.CRAWL_API,
-                totalRequests: freePlan?.feature?.crawlAPI?.requestLimits ?? 0,
-                totalRemainingRequests: freePlan?.feature?.crawlAPI?.requestLimits ?? 0,
-                totalRequestsUsed: 0,
-                totalCredits: crawlApiCredits ?? 0,
-                totalCreditsUsed: 0,
-                totalRemainingCredits: crawlApiCredits ?? 0,
-              }
-            }
-          }
-        }
-      }
-    });
-    const subscription = await tx.subscription.create({
-      data: {
-        shop: { connect: { id: shop.id } },
-        plan: { connect: { id: freePlan.id } },
-        status: SubscriptionStatus.ACTIVE,
-        startDate: startDate.toJSDate(),
-        endDate: endDate.toJSDate(),
-        usage: { connect: { id: usage.id } }
-      }
-    });
-    return subscription;
   }
 
   private static getDefaultAIServiceDetails() {
@@ -991,86 +1080,37 @@ export class UsageManager {
     };
   }
 
-  static async resetUsageCounts(shopName: string): Promise<void> {
-    await this.retry(async () => {
-      const shop = await prisma.shop.findUnique({
-        where: { name: shopName }
-      });
-      if (!shop) throw new Error('Shop not found');
-      let activeSubscription = await SubscriptionManager.getCurrentSubscription(shopName);
-      if (!activeSubscription) {
-        activeSubscription = await this.createDefaultSubscription(shop?.id);
-        if (!activeSubscription) {
-          throw new Error('Failed to create a default subscription');
-        }
-      }
-      const associatedUsers = await ShopifySessionManager.findCurrentAssociatedUsersByShop(shopName);
-      const feature = activeSubscription?.plan?.feature;
-      if (!feature) {
-        throw new Error('Invalid or not found plan feature');
-      }
-      const model = await ModelManager.getLatestModel();
-      const now = new Date();
-      if (!activeSubscription.usageId) {
-        const usage = await prisma.usage.create({
-          data: {
-            shop: { connect: { id: shop.id } },
-            associatedUsers: {
-              create: associatedUsers.map(user => ({
-                associatedUser: {
-                  connect: { userId: user.userId }
-                }
-              }))
-            },
-            subscription: { connect: { id: activeSubscription.id } },
-            serviceUsage: {
-              create: {
-                aiUsageDetails: {
-                  create: {
-                    service: Service.AI_API,
-                    modelName: model.name,
-                    inputTokensCount: 0,
-                    outputTokensCount: 0,
-                    totalRequests: feature?.aiAPI?.requestLimits ?? 0,
-                    totalRemainingRequests: feature?.aiAPI?.requestLimits ?? 0,
-                    totalRequestsUsed: 0,
-                    requestsPerMinuteLimit: feature?.aiAPI?.RPM ?? 0,
-                    requestsPerDayLimit: feature?.aiAPI?.RDP ?? 0,
-                    remainingRequestsPerMinute: feature?.aiAPI?.RPM ?? 0,
-                    remainingRequestsPerDay: feature?.aiAPI?.RPD ?? 0,
-                    resetTimeForMinuteRequests: now,
-                    resetTimeForDayRequests: now,
-                    tokensConsumedPerMinute: 0,
-                    tokensConsumedPerDay: 0,
-                    totalTokens: feature?.aiAPI?.totalTokens ?? 0,
-                    totalTokensUsed: 0,
-                    lastTokenUsageUpdateTime: now
+  static async resetUsageCounts(activeSubscription: Subscription, shopId: string): Promise<void> {
+    if (!shopId) {
+      throw new Error(this.Errors.MISSING_PARAMETERS);
+      return;
+    }
+    if (!activeSubscription) {
+      throw new Error(this.Errors.SUBSCRIPTION_NOT_FOUND);
+      return;
+    }
+    if (!activeSubscription?.plan?.feature) {
+      throw new Error('Invalid or not found plan feature');
+    }
+    try {
+      await this.retry(async () => {
+        const model = await ModelManager.getLatestModel();
+        const associatedUsers = await ShopifySessionManager.findCurrentAssociatedUsersByShop(shopName);
+        const feature = activeSubscription?.plan?.feature;
+        const now = DateTime.utc().toJSDate();
+        if (!activeSubscription.usageId) {
+          const usage = await prisma.usage.create({
+            data: {
+              shop: { connect: { id: shop.id } },
+              associatedUsers: {
+                create: associatedUsers.map(user => ({
+                  associatedUser: {
+                    connect: { userId: user.userId }
                   }
-                },
-                crawlUsageDetails: {
-                  create: {
-                    service: Service.CRAWL_API,
-                    totalRequests: feature?.crawlAPI?.requestLimits ?? 0,
-                    totalRemainingRequests: feature?.crawlAPI?.requestLimits ?? 0,
-                    totalRequestsUsed: 0
-                  }
-                }
-              }
-            }
-          }
-        });
-        await prisma.subscription.update({
-          where: { id: activeSubscription.id },
-          data: {
-            usage: { connect: { id: usage.id } }
-          }
-        });
-      } else {
-        await prisma.usage.update({
-          where: { id: activeSubscription.usageId },
-          data: {
-            serviceUsage: {
-              upsert: {
+                }))
+              },
+              subscription: { connect: { id: activeSubscription.id } },
+              serviceUsage: {
                 create: {
                   aiUsageDetails: {
                     create: {
@@ -1102,17 +1142,33 @@ export class UsageManager {
                       totalRequestsUsed: 0
                     }
                   }
-                },
-                update: {
-                  aiUsageDetails: {
-                    upsert: {
+                }
+              }
+            }
+          });
+          await prisma.subscription.update({
+            where: { id: activeSubscription.id },
+            data: {
+              usage: { connect: { id: usage.id } }
+            }
+          });
+        } else {
+          await prisma.usage.update({
+            where: { id: activeSubscription.usageId },
+            data: {
+              serviceUsage: {
+                upsert: {
+                  create: {
+                    aiUsageDetails: {
                       create: {
                         service: Service.AI_API,
                         modelName: model.name,
                         inputTokensCount: 0,
                         outputTokensCount: 0,
-                        totalRequests: feature?.aiAPI?.requestLimits ?? 0,
-                        totalRemainingRequests: feature?.aiAPI?.requestLimits ?? 0,
+                        totalRequests: feature?.aiAPI?.requestLimits 
+                        ?? (feature?.aiAPI?.creditLimits / feature?.aiAPI?.conversionRate ?? this.CREDIT_CONVERSION[Service.AI_API]),
+                        totalRemainingRequests: feature?.aiAPI?.requestLimits 
+                        ?? (feature?.aiAPI?.creditLimits / feature?.aiAPI?.conversionRate ?? this.CREDIT_CONVERSION[Service.AI_API]),
                         totalRequestsUsed: 0,
                         requestsPerMinuteLimit: feature?.aiAPI?.RPM ?? 0,
                         requestsPerDayLimit: feature?.aiAPI?.RDP ?? 0,
@@ -1124,54 +1180,438 @@ export class UsageManager {
                         tokensConsumedPerDay: 0,
                         totalTokens: feature?.aiAPI?.totalTokens ?? 0,
                         totalTokensUsed: 0,
+                        totalCredits: feature?.aiAPI?.creditLimits ?? 0,
+                        totalCreditsUsed: 0,
+                        totalRemainingCredits: feature?.aiAPI?.creditLimits ?? 0,
                         lastTokenUsageUpdateTime: now
-                      },
-                      update: {
-                        modelName: model.name,
-                        inputTokensCount: 0,
-                        outputTokensCount: 0,
-                        totalRequests: feature?.aiAPI?.requestLimits ?? 0,
-                        totalRemainingRequests: feature?.aiAPI?.requestLimits ?? 0,
+                      }
+                    },
+                    crawlUsageDetails: {
+                      create: {
+                        service: Service.CRAWL_API,
+                        totalRequests: feature?.crawlAPI?.requestLimits 
+                        ?? (feature?.crawlAPI?.creditLimits / feature?.crawlAPI?.conversionRate ?? this.CREDIT_CONVERSION[Service.CRAWL_API]),
+                        totalRemainingRequests: feature?.crawlAPI?.requestLimits 
+                        ?? (feature?.crawlAPI?.creditLimits / feature?.crawlAPI?.conversionRate ?? this.CREDIT_CONVERSION[Service.CRAWL_API]),
                         totalRequestsUsed: 0,
-                        requestsPerMinuteLimit: feature?.aiAPI?.RPM ?? 0,
-                        requestsPerDayLimit: feature?.aiAPI?.RDP ?? 0,
-                        remainingRequestsPerMinute: feature?.aiAPI?.RPM ?? 0,
-                        remainingRequestsPerDay: feature?.aiAPI?.RPD ?? 0,
-                        resetTimeForMinuteRequests: now,
-                        resetTimeForDayRequests: now,
-                        tokensConsumedPerMinute: 0,
-                        tokensConsumedPerDay: 0,
-                        totalTokens: feature?.aiAPI?.totalTokens ?? 0,
-                        totalTokensUsed: 0,
-                        lastTokenUsageUpdateTime: now
+                        totalCredits: feature?.crawlAPI?.creditLimits ?? 0,
+                        totalCreditsUsed: 0,
+                        totalRemainingCredits: feature?.crawlAPI?.creditLimits ?? 0,
                       }
                     }
                   },
-                  crawlUsageDetails: {
-                    upsert: {
-                      create: {
-                        service: Service.CRAWL_API,
-                        totalRequests: feature?.crawlAPI?.requestLimits ?? 0,
-                        totalRemainingRequests: feature?.crawlAPI?.requestLimits ?? 0,
-                        totalRequestsUsed: 0
-                      },
-                      update: {
-                        totalRequests: feature?.crawlAPI?.requestLimits ?? 0,
-                        totalRemainingRequests: feature?.crawlAPI?.requestLimits ?? 0,
-                        totalRequestsUsed: 0
+                  update: {
+                    aiUsageDetails: {
+                      upsert: {
+                        create: {
+                          service: Service.AI_API,
+                          modelName: model.name,
+                          inputTokensCount: 0,
+                          outputTokensCount: 0,
+                          totalRequests: feature?.aiAPI?.requestLimits 
+                          ?? (feature?.aiAPI?.creditLimits / feature?.aiAPI?.conversionRate ?? this.CREDIT_CONVERSION[Service.AI_API]),
+                          totalRemainingRequests: feature?.aiAPI?.requestLimits 
+                          ?? (feature?.aiAPI?.creditLimits / feature?.aiAPI?.conversionRate ?? this.CREDIT_CONVERSION[Service.AI_API]),
+                          totalRequestsUsed: 0,
+                          requestsPerMinuteLimit: feature?.aiAPI?.RPM ?? 0,
+                          requestsPerDayLimit: feature?.aiAPI?.RDP ?? 0,
+                          remainingRequestsPerMinute: feature?.aiAPI?.RPM ?? 0,
+                          remainingRequestsPerDay: feature?.aiAPI?.RPD ?? 0,
+                          resetTimeForMinuteRequests: now,
+                          resetTimeForDayRequests: now,
+                          tokensConsumedPerMinute: 0,
+                          tokensConsumedPerDay: 0,
+                          totalTokens: feature?.aiAPI?.totalTokens ?? 0,
+                          totalTokensUsed: 0,
+                          totalCredits: feature?.aiAPI?.creditLimits ?? 0,
+                          totalCreditsUsed: 0,
+                          totalRemainingCredits: feature?.aiAPI?.creditLimits ?? 0,
+                          lastTokenUsageUpdateTime: now
+                        },
+                        update: {
+                          modelName: model.name,
+                          inputTokensCount: 0,
+                          outputTokensCount: 0,
+                          totalRequests: feature?.aiAPI?.requestLimits 
+                          ?? (feature?.aiAPI?.creditLimits / feature?.aiAPI?.conversionRate ?? this.CREDIT_CONVERSION[Service.AI_API]),
+                          totalRemainingRequests: feature?.aiAPI?.requestLimits 
+                          ?? (feature?.aiAPI?.creditLimits / feature?.aiAPI?.conversionRate ?? this.CREDIT_CONVERSION[Service.AI_API]),
+                          totalRequestsUsed: 0,
+                          requestsPerMinuteLimit: feature?.aiAPI?.RPM ?? 0,
+                          requestsPerDayLimit: feature?.aiAPI?.RDP ?? 0,
+                          remainingRequestsPerMinute: feature?.aiAPI?.RPM ?? 0,
+                          remainingRequestsPerDay: feature?.aiAPI?.RPD ?? 0,
+                          resetTimeForMinuteRequests: now,
+                          resetTimeForDayRequests: now,
+                          tokensConsumedPerMinute: 0,
+                          tokensConsumedPerDay: 0,
+                          totalTokens: feature?.aiAPI?.totalTokens ?? 0,
+                          totalTokensUsed: 0,
+                          totalCredits: feature?.aiAPI?.creditLimits ?? 0,
+                          totalCreditsUsed: 0,
+                          totalRemainingCredits: feature?.aiAPI?.creditLimits ?? 0,
+                          lastTokenUsageUpdateTime: now
+                        }
+                      }
+                    },
+                    crawlUsageDetails: {
+                      upsert: {
+                        create: {
+                          service: Service.CRAWL_API,
+                          totalRequests: feature?.crawlAPI?.requestLimits 
+                          ?? (feature?.crawlAPI?.creditLimits / feature?.crawlAPI?.conversionRate ?? this.CREDIT_CONVERSION[Service.CRAWL_API]),
+                          totalRemainingRequests: feature?.crawlAPI?.requestLimits 
+                          ?? (feature?.crawlAPI?.creditLimits / feature?.crawlAPI?.conversionRate ?? this.CREDIT_CONVERSION[Service.CRAWL_API]),
+                          totalRequestsUsed: 0,
+                          totalCredits: feature?.crawlAPI?.creditLimits ?? 0,
+                          totalCreditsUsed: 0,
+                          totalRemainingCredits: feature?.crawlAPI?.creditLimits ?? 0,
+                        },
+                        update: {
+                          totalRequests: feature?.crawlAPI?.requestLimits 
+                          ?? (feature?.crawlAPI?.creditLimits / feature?.crawlAPI?.conversionRate ?? this.CREDIT_CONVERSION[Service.CRAWL_API]),
+                          totalRemainingRequests: feature?.crawlAPI?.requestLimits 
+                          ?? (feature?.crawlAPI?.creditLimits / feature?.crawlAPI?.conversionRate ?? this.CREDIT_CONVERSION[Service.CRAWL_API]),
+                          totalRequestsUsed: 0,
+                          totalCredits: feature?.crawlAPI?.creditLimits ?? 0,
+                          totalCreditsUsed: 0,
+                          totalRemainingCredits: feature?.crawlAPI?.creditLimits ?? 0,
+                        }
                       }
                     }
                   }
                 }
               }
             }
+          });
+        }
+      }, {
+        timeout: UsageManager.TRANSACTION_TIMEOUT,
+        maxWait: UsageManager.MAX_WAIT,
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable
+      });
+    } catch (error) {
+      console.error('Failed to reset usage state:', error);
+      throw error;
+    }
+  }
+private static async checkLastNotification(
+    shopId: string,
+    type: NotificationType,
+    metadata?: Record<string, any>
+  ): Promise<boolean> {
+    const lastNotification = await prisma.notification.findFirst({
+      where: {
+        shopId,
+        type,
+        ...(metadata && {
+          metadata: {
+            equals: metadata
           }
-        });
+        }),
+        createdAt: {
+          gte: DateTime.utc().minus({ hours: 24 }).toJSDate()
+        }
       }
-    }, {
-      timeout: UsageManager.TRANSACTION_TIMEOUT,
-      maxWait: UsageManager.MAX_WAIT,
-      isolationLevel: Prisma.TransactionIsolationLevel.Serializable
+    });
+    return !!lastNotification;
+  }
+
+  private static getNotificationConfig(type: NotificationType): {
+    title: string;
+    generateMessage: (data: any) => string;
+    recommendations: string[];
+  } {
+    const configs = {
+      [NotificationType.USAGE_OVER_LIMIT]: {
+        title: 'Usage Limit Exceeded',
+        generateMessage: (usageState: UsageState) => 
+          this.generateUsageLimitMessage(usageState, true),
+        recommendations: [
+          'Consider upgrading your subscription plan to avoid service interruptions',
+          'Review your API usage patterns to identify potential optimizations',
+          'Contact support for temporary limit extensions if needed'
+        ]
+      },
+      [NotificationType.USAGE_APPROACHING_LIMIT]: {
+        title: 'Usage Limit Approaching',
+        generateMessage: (usageState: UsageState) => 
+          this.generateUsageLimitMessage(usageState, false),
+        recommendations: [
+          'Monitor your usage closely over the next few days',
+          'Consider implementing rate limiting in your application',
+          'Review our documentation for usage optimization tips'
+        ]
+      },
+      [NotificationType.PACKAGE_EXPIRED]: {
+          title: 'Credit Package Expired',
+          generateMessage: (data: { 
+              packageName: string;
+              currentUsage: number;
+              usageLimit: number;
+              activePackagesCount: number;
+          }) => this.generatePackageExpiredMessage(data),
+          recommendations: (activePackagesCount: number) => [
+              activePackagesCount === 0 ? 'Purchase credits immediately to avoid service interruption' : 'Purchase additional credits',
+              'Upgrade to a higher tier plan',
+              'Contact support for custom solutions'
+          ]
+      },
+      [NotificationType.SUBSCRIPTION_EXPIRED]: {
+        title: 'Subscription Usage Limit',
+        generateMessage: (service) => 
+          `Your subscription usage for ${service === Service.CRAWL_API ? 'Crawl API' : 'AI API'} service has reached. Doc2Product will proceed to use your active credit packages (if any)`,
+        recommendations: [
+          'Purchase additional credits',
+          'Upgrade to a higher tier plan',
+          'Contact support for custom solutions'
+        ]
+      }
+    };
+    return configs[type];
+  }
+
+  private static async createNotification(
+    data: {
+      shopId: string;
+      type: NotificationType;
+      title: string;
+      message: string;
+      metadata?: Record<string, any>;
+    }
+  ): Promise<Notification> {
+    return prisma.notification.create({ data });
+  }
+
+  private static async handleUsageNotification(
+    usageState: UsageState,
+    shopId: string,
+    shopName: string,
+    email: string,
+  ): Promise<void> {
+    const { totalUsage, serviceDetails } = usageState;
+    const isOverLimit = totalUsage.isOverLimit || 
+      Object.values(serviceDetails).some(service => service.isOverLimit);
+    const isApproachingLimit = totalUsage.isApproachingLimit || 
+      Object.values(serviceDetails).some(service => service.isApproachingLimit);
+    if (!isOverLimit && !isApproachingLimit) {
+      return;
+    }
+    const notificationType = isOverLimit 
+      ? NotificationType.USAGE_OVER_LIMIT 
+      : NotificationType.USAGE_APPROACHING_LIMIT;
+    try {
+      const hasRecentNotification = await this.checkLastNotification(
+        shopId,
+        notificationType,
+
+      );
+      if (hasRecentNotification) return;
+      const config = this.getNotificationConfig(notificationType);
+      await this.createNotification({
+        shopId,
+        type: notificationType,
+        title: config.title,
+        message: config.generateMessage(usageState)
+      });
+      await this.sendNotificationEmail(email, {
+        shopName,
+        usageData: this.generateUsageEmailData(usageState),
+        notificationType
+      });
+    } catch (error) {
+      console.error('Failed to handle usage notification:', error);
+      throw error;
+    }
+  }
+
+  static async handlePackageExpired(
+    shopId: string,
+    shopName: string,
+    purchase: CreditPurchase,
+    activePackages: CreditPurchase[],
+    email: string
+  ): Promise<void> {
+    const hasRecentNotification = await this.checkLastNotification(
+      shopId,
+      NotificationType.PACKAGE_EXPIRED,
+      { packageName: purchase.creditPackage.name }
+    );
+    if (hasRecentNotification) return;
+    await prisma.creditPurchase.update({
+      where: { id: purchase.id },
+      data: { 
+        status: PackageStatus.EXPIRED, 
+        updatedAt: DateTime.utc().toJSDate(),
+        expiredAt: DateTime.utc().toJSDate()  
+      }
+    });
+    const usageData = {
+      packageName: purchase?.creditPackage?.name,
+      currentUsage: purchase.usage?.creditsUsed || 0,
+      usageLimit: purchase.creditPackage.creditAmount || 0,
+      expiredDate: DateTime.utc().toLocal().toFormat('cccc, dd MMMM yyyy'),
+      activePackagesCount: activePackages.length
+    }
+    const config = this.getNotificationConfig(NotificationType.PACKAGE_EXPIRED);
+    await this.createNotification({
+      shopId,
+      type: NotificationType.PACKAGE_EXPIRED,
+      title: config.title,
+      message: config.generateMessage(usageData),
+      metadata: { 
+        packageName: purchase.creditPackage.name,
+        activePackagesCount: activePackages.length
+      }
+    });
+    await this.sendNotificationEmail(email, {
+      shopName,
+      usageData,
+      activePackages,
+      notificationType: NotificationType.PACKAGE_EXPIRED
     });
   }
+
+  static async handleSubscriptionExpired(
+    shopId: string,
+    shopName: string,
+    service: Service,
+    subscription: CreditPurchase,
+    email: string
+  ): Promise<void> {
+    const hasRecentNotification = await this.checkLastNotification(
+      shopId,
+      NotificationType.SUBSCRIPTION_EXPIRED,
+      { 
+        subscriptionId: subscription.id,
+        service: service 
+      }
+    );
+    if (hasRecentNotification) return;
+    const config = this.getNotificationConfig(NotificationType.SUBSCRIPTION_EXPIRED);
+    await this.createNotification({
+      shopId,
+      type: NotificationType.SUBSCRIPTION_EXPIRED,
+      title: config.title,
+      message: config.generateMessage(service),
+      metadata: { 
+        subscriptionId: subscription.id,
+        service
+      }
+    });
+    await this.sendNotificationEmail(email, {
+      shopName,
+      usageData: {
+        nextResetDate: subscription?.endDate 
+          ? DateTime.fromJSDate(subscription.endDate).plus({ days: 1 }).toFormat('cccc, dd MMMM yyyy') 
+          : 'N/A',
+        service
+      },           
+      notificationType: NotificationType.SUBSCRIPTION_EXPIRED
+    });
+  }
+
+  private static generateUsageLimitMessage(usageState: UsageState, isOverLimit: boolean): string {
+    const messages: string[] = [];
+    const { totalUsage, serviceDetails } = usageState;
+    if (isOverLimit && totalUsage.isOverLimit) {
+      messages.push(`Total usage has exceeded the limit (${(totalUsage.percentageUsed).toFixed(1)}%)`);
+    } else if (!isOverLimit && totalUsage.isApproachingLimit) {
+      messages.push(`Total usage is approaching the limit (${(totalUsage.percentageUsed).toFixed(1)}%)`);
+    }
+    Object.entries(serviceDetails).forEach(([service, details]) => {
+      if (isOverLimit && details.isOverLimit) {
+        messages.push(`${service === Service.CRAWL_API ? 'Crawl API' : 'AI API'} service has exceeded its usage limit (${(details.percentageUsed).toFixed(1)}%)`);
+      } else if (!isOverLimit && details.isApproachingLimit) {
+        messages.push(`${service === Service.CRAWL_API ? 'Crawl API' : 'AI API'} service is approaching its usage limit (${(details.percentageUsed).toFixed(1)}%)`);
+      }
+    });
+    return messages.join('. ');
+  }
+
+  private static generatePackageExpiredMessage(data: {
+    packageName: string;
+    currentUsage: number;
+    usageLimit: number;
+    activePackagesCount: number;
+  }): string {
+    const { packageName, activePackagesCount } = data;
+    if (activePackagesCount === 0) {
+      return `Your ${packageName} package has expired. You have no active packages remaining. To continue using our services, please purchase additional credits or upgrade your package.`;
+    }
+    return `Your ${packageName} package has expired. You have ${activePackagesCount} active package${activePackagesCount > 1 ? 's' : ''} remaining. Consider purchasing additional credits to ensure uninterrupted service.`;
+  }
+
+  private static generateUsageEmailData(usageState: UsageState): any {
+    return {
+      totalUsage: {
+        creditsUsed: usageState.totalUsage.creditsUsed,
+        creditLimit: usageState.totalUsage.creditsLimit,
+        percentageUsed: usageState.totalUsage.percentageUsed,
+        isOverLimit: usageState.totalUsage.isOverLimit,
+        isApproachingLimit: usageState.totalUsage.isApproachingLimit
+      },
+      serviceDetails: Object.entries(usageState.serviceDetails).map(([service, details]) => ({
+        service,
+        totalRequests: details.totalRequests,
+        totalRequestsUsed: details.totalRequestsUsed,
+        percentageUsed: details.percentageUsed,
+        isOverLimit: details.isOverLimit,
+        isApproachingLimit: details.isApproachingLimit,
+        remainingRequests: details.totalRemainingRequests
+      }))
+    };
+  }
+
+  private static async sendNotificationEmail(
+    email: string,
+    data: {
+      shopName: string;
+      usageData?: any;
+      activePackages?: CreditPurchase[];
+      notificationType: NotificationType;
+    }
+  ): Promise<void> {
+    const isEmailValid = email && this.isValidEmail(email);
+    if (!isEmailValid) {
+      console.log(this.Errors.NO_EMAIL_PROVIDED);
+      return;
+    }
+    const { shopName, usageData, activePackages, notificationType } = data;
+    try {
+    const config = this.getNotificationConfig(notificationType);
+    const emailData = {
+      shopName,
+      ...(usageData && { usageDetails: usageData }),
+      ...(activePackages && { activePackages: activePackages }),
+    };
+    await emailService.initialize();
+    await emailService.sendUsageEmail(email, emailData, notificationType);
+    } catch (error) {
+      console.error('Failed to send usage email:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        email,
+        shopName,
+        notificationType
+      });
+      if (error instanceof EmailServiceError) {
+        switch (error.code) {
+          case 'DATA_ERROR':
+              console.error('Invalid email data:', error.details);
+              break;
+          case 'TEMPLATE_ERROR':
+              console.error('Email template error:', error.message);
+              break;
+          case 'SEND_ERROR':
+              console.error('Email sending failed:', error.details);
+              break;
+          default:
+              console.error('Unexpected email service error:', error);
+        }
+      }
+      throw error;
+    }
+  }
 }
+
+

@@ -1,5 +1,5 @@
 "use client"
-import { useState, useEffect, useCallback, useMemo, memo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
 import { TEMPLATE_OPTIONS } from '@/constants/template';
 import {
   Page,
@@ -12,10 +12,12 @@ import {
   ChoiceList,
   EmptyState,
   Loading,
+  Box,
   Text,
   Pagination,
   BlockStack,
   ActionList,
+  TextField,
   Frame,
   Tag,
   Tooltip,
@@ -33,6 +35,7 @@ import { ContentDetailsModal } from './ContentDetailsModal';
 import LoadingScreen from '@/components/LoadingScreen';
 import { getUserContentHistory } from "@/actions/template";
 import { AppSession } from '@/types/auth';
+import { ContentCategory } from '@/types/content';
 import { ShopApiService } from '@/utils/api';
 import { PlusIcon, XIcon, ViewIcon, HeartIcon, HomeIcon, OrderIcon, ProductIcon, EditIcon, DeleteIcon, ChevronDownIcon } from '@shopify/polaris-icons';
 import { ErrorType } from '@/types/form';
@@ -188,7 +191,6 @@ type ShopifyContent = IProduct | IArticle | IBlog;
 
 const TemplateCard = memo(({ template, onAction }) => {
   const [popoverActive, setPopoverActive] = useState(false);
-  const [isFavorite, setIsFavorite] = useState(template?.isFavorite || false);
   const renderTemplateImage = () => {
     const imageSrc = template.article_image || template.image?.src;
     return imageSrc ? (
@@ -232,7 +234,7 @@ const TemplateCard = memo(({ template, onAction }) => {
       : content;
     return (
       <BlockStack gap="200">
-        <Text as="h3" variant="headingSm">{template.title || 'Untitled'}</Text>
+        <Text as="h3" variant="headingSm">{template.title || template.blog_title || template.article_title || 'Untitled'}</Text>
         <Text variant="bodyMd" tone="subdued">
           {truncatedContent}
         </Text>
@@ -247,87 +249,55 @@ const TemplateCard = memo(({ template, onAction }) => {
   };
 
   const renderActionButtons = () => {
-    return (
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center',
-        marginTop: '16px'
-      }}>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <Tooltip content="View Details">
-            <Button 
-              icon={ViewIcon} 
-              variant="secondary" 
-              size="slim"
-              onClick={() => onAction('view', template)}
-            />
-          </Tooltip>
-          <Tooltip content="Add to List">
-            <Button 
-              icon={PlusIcon} 
-              variant="secondary" 
-              size="slim"
-              onClick={() => onAction('list', template)}
-            />
-          </Tooltip>
-          <Tooltip content={isFavorite ? "Remove from Favorites" : "Add to Favorites"}>
-            <Button 
-              icon={HeartIcon} 
-              variant={isFavorite ? "primary" : "secondary"} 
-              size="slim"
-              onClick={() => onAction('favorite', template)}
-            />
-          </Tooltip>
-        </div>
-        
-        <Popover
-          active={popoverActive}
-          activator={
-            <Button 
-              icon={ChevronDownIcon}
-              variant="secondary"
-              size="slim"
-              onClick={() => setPopoverActive(!popoverActive)}
-            />
-          }
-          onClose={() => setPopoverActive(false)}
-        >
-          <ActionList
-            actionRole="menuitem"
-            items={[
-              {
-                content: 'Edit',
-                icon: EditIcon,
-                onAction: () => onAction('edit', template)
-              },
-              {
-                content: 'Delete',
-                icon: DeleteIcon,
-                destructive: true,
-                onAction: () => onAction('delete', template)
-              }
-            ]}
-          />
-        </Popover>
-      </div>
-    );
+   return (
+     <div style={{ 
+       bottom: '24px',
+       position: 'absolute',
+       width: '88%',
+       display: 'flex',
+       justifyContent: 'space-between',
+     }}>
+       <Tooltip content="View Details">
+         <Button 
+           icon={ViewIcon} 
+           variant="primary" 
+           size="slim"
+           onClick={() => onAction('view', template)}
+         />
+       </Tooltip>
+       <Tooltip content="Add to List">
+         <Button 
+           icon={PlusIcon} 
+           variant="primary"
+           tone="success" 
+           size="slim"
+           onClick={() => onAction('list', template)}
+         />
+       </Tooltip>
+       <Tooltip content={template?.isFavorite ? "Remove from Favorites" : "Add to Favorites"}>
+         <Button 
+           icon={HeartIcon} 
+           variant={template?.isFavorite ? "primary" : "secondary"} 
+           tone="critical"
+           size="slim"
+           onClick={() => onAction('favorite', template)}
+         />
+       </Tooltip>
+     </div>
+   );
   };
 
   return (
-    <Card 
+    <Box 
       key={template.id} 
-      padding="400"
-      background="bg-surface-secondary"
-      roundedAbove="sm"
-      shadow="md"
+      className="relative h-[500px] p-4 bg-white border border-gray-200 rounded-lg shadow-md hover:shadow-lg transition-shadow duration-300" 
     >
       <BlockStack gap="400">
         {renderTemplateImage()}
         {renderContentDetails()}
         {renderActionButtons()}
       </BlockStack>
-    </Card>
+    </Box>
   );
 });
 
@@ -341,8 +311,8 @@ const TemplateGrid = memo(({ templates, onAction, searchStats }: {
      <div className="mx-4 pb-2 mb-2 border-b border-gray-400/80">
        <Text variant="bodyMd" tone="subdued">
          {searchStats.filteredResults === searchStats.totalResults ? 
-           `${searchStats.totalResults} total products` : 
-           `Showing ${searchStats.filteredResults} of ${searchStats.totalResults} products`}
+           `${searchStats.totalResults} total templates` : 
+           `Showing ${searchStats.filteredResults} of ${searchStats.totalResults} templates`}
          {Object.values(searchStats.appliedFilters).some(f => f && f.length) && (
            <span className="ml-1">
              (filtered by: {[
@@ -357,7 +327,7 @@ const TemplateGrid = memo(({ templates, onAction, searchStats }: {
        </Text>
      </div>
      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 p-4 mt-2">
-       {templates.map((template) => (
+       {templates.length && templates.map((template) => (
          <TemplateCard key={template.id} template={template} onAction={onAction} />
        ))}
      </div>
@@ -381,9 +351,9 @@ export default function ContentTemplate({ session }: ContentTemplateProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [currentLimit, setCurrentLimit] = useState(16);
-  const [totalContents, setTotalContents] = useState(0);
+  const [totalTemplates, setTotalTemplates] = useState(0);
   const [error, setError] = useState<string | null>(null);
-   const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
   const [searchDebounce, setSearchDebounce] = useState('');
   const [taggedWith, setTaggedWith] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -405,28 +375,21 @@ export default function ContentTemplate({ session }: ContentTemplateProps) {
   const storedTemplates = useAppSelector(selectTemplates);
   const templateItems = useAppSelector(selectTemplatesList);
 
-  const calculatePriceRange = useCallback((templates: CONTENT[]) => {
-    const prices = templates
-      .map(p => Number(p.variants?.[0]?.price) || 0)
-      .filter(price => price > 0);
-    
-    if (prices.length === 0) {
-      return { min: 0, max: 1000 };
-    }
-    
-    return {
-      min: Math.floor(Math.min(...prices)),
-      max: Math.ceil(Math.max(...prices))
-    };
-  }, []);
+  const flattenedTemplates = useMemo(() => {
+    const _templates = [
+      ...(storedTemplates.blog || []),
+      ...(storedTemplates.article || []),
+      ...(storedTemplates.blogArticle || []),
+      ...(storedTemplates.product || []),
+    ];
+
+    return Array.from(_templates).sort((a, b) => 
+      (b.isFavorite ? 1 : 0) - (a.isFavorite ? 1 : 0)
+    );
+  }, [storedTemplates]);
+
 
   useEffect(() => {
-    const { min, max } = calculatePriceRange(templates);
-    setMinMaxPrices({ min, max });
-    setPriceRange([min, max]);
-  }, [templates, calculatePriceRange]);
-
-   useEffect(() => {
      if (searchTimeout.current) {
        clearTimeout(searchTimeout.current);
      }
@@ -453,7 +416,7 @@ export default function ContentTemplate({ session }: ContentTemplateProps) {
       const paginatedArray = TEMPLATE_OPTIONS.slice(0, newLimit)
       setTemplates(paginatedArray);
       setCurrentLimit(newLimit);
-      setTotalContents(TEMPLATE_OPTIONS.length);
+      setTotalTemplates(TEMPLATE_OPTIONS.length);
     } catch (error) {
       console.error('Failed to load more template', error);
     } finally {
@@ -470,7 +433,7 @@ export default function ContentTemplate({ session }: ContentTemplateProps) {
       return;
     }
     dispatch(addItemToList({
-      listName:'templateList', 
+      listId:'templateList', 
       item: {
         ...template
       }
@@ -502,17 +465,6 @@ export default function ContentTemplate({ session }: ContentTemplateProps) {
     const returnUrl = `/content/templates/${template.id}?${queryParams}`;
     redirect.dispatch(Redirect.Action.APP, { path: returnUrl });
   }, [redirect, shop, host]);
-
-  const sortedTemplates = useMemo(() => {
-    const flattenedTemplates = [
-      ...(storedTemplates.blog || []),
-      ...(storedTemplates.article || []),
-      ...(storedTemplates.product || []),
-    ];
-    return flattenedTemplates.sort((a, b) => 
-      (b.isFavorite ? 1 : 0) - (a.isFavorite ? 1 : 0)
-    );
-  }, [storedTemplates]);
 
   const handleCreateNewContent = useCallback(() => {
     if (!shop || !host || !redirect) return;
@@ -548,11 +500,11 @@ export default function ContentTemplate({ session }: ContentTemplateProps) {
         isFavorite: false
       });
       return acc;
-    }, {} as Record<'blog' | 'article' | 'product', Template[]>);
+    }, {} as Record<'blog' | 'article' | 'blogArticle' | 'product', Template[]>);
     if (!storedTemplates || Object.values(storedTemplates).every(arr => arr.length === 0)) {
       Object.entries(templatesByCategory).forEach(([type, items]) => {
         dispatch(createTemplates({
-          type: type as 'blog' | 'article' | 'product',
+          type: type as 'blog' | 'article' | 'blogArticle' | 'product',
           items
         }));
       });
@@ -583,7 +535,7 @@ export default function ContentTemplate({ session }: ContentTemplateProps) {
         );
         if (needsUpdate) {
           dispatch(updateTemplates({
-            type: type as 'blog' | 'article' | 'product',
+            type: type as 'blog' | 'article' | 'blogArticle' | 'product',
             items: updatedTemplates
           }));
         }
@@ -592,29 +544,17 @@ export default function ContentTemplate({ session }: ContentTemplateProps) {
     setTemplates(storedTemplates);
   }, [dispatch, TEMPLATE_OPTIONS]);
 
-  const filteredContents = useMemo(() => {
-    let filtered = templates.map(template => ({
+  const filteredTemplates = useMemo(() => {
+    let filtered = flattenedTemplates.length && flattenedTemplates.map(template => ({
      ...template,
      relevanceScore: getRelevanceScore(template, searchQuery)
-    }));
-    filtered.sort((a, b) => {
-      const dateA = new Date('updated_at' in a ? a.updated_at : a.article_published_at).getTime();
-      const dateB = new Date('updated_at' in b ? b.updated_at : b.article_published_at).getTime();
-      return dateB - dateA;
-    });
+    })) || [];
     if (taggedWith) {
       filtered = filtered.filter(template => {
         const tags = 'article_tags' in template 
           ? template.article_tags 
           : template.tags;
         return tags?.toLowerCase().includes(taggedWith.toLowerCase());
-      });
-    }
-    if (priceRange[0] > minMaxPrices.min || priceRange[1] < minMaxPrices.max) {
-      filtered = filtered.filter(template => {
-        if (!('product_type' in template)) return true; // Skip non-products
-        const price = Number(template.variants?.[0]?.price) || 0;
-        return price >= priceRange[0] && price <= priceRange[1];
       });
     }
     if (selectedContentTypes.length > 0) {
@@ -660,18 +600,10 @@ export default function ContentTemplate({ session }: ContentTemplateProps) {
       });
     }
   switch (sortOrder) {
-    case 'newest':
-      filtered.sort((a, b) => {
-        const dateA = new Date('updated_at' in a ? a.updated_at : a.article_published_at).getTime();
-        const dateB = new Date('updated_at' in b ? b.updated_at : b.article_published_at).getTime();
-        return dateB - dateA;
-      });
-      break;
-    case 'price':
-      filtered.sort((a, b) => {
-        if (!('product_type' in a) || !('product_type' in b)) return 0;
-        return (Number(a.variants?.[0]?.price) || 0) - (Number(b.variants?.[0]?.price) || 0);
-      });
+    case 'favorite':
+      filtered.sort((a, b) => 
+        (b.isFavorite ? 1 : 0) - (a.isFavorite ? 1 : 0)
+      );
       break;
     case 'relevance':
     default:
@@ -679,11 +611,11 @@ export default function ContentTemplate({ session }: ContentTemplateProps) {
       break;
   }
   return filtered;
-}, [contents, searchQuery, searchField, selectedStatuses, selectedContentTypes, sortOrder, priceRange, minMaxPrices, taggedWith]);
+}, [flattenedTemplates, searchQuery, searchField, selectedStatuses, selectedContentTypes, sortOrder, priceRange, minMaxPrices, taggedWith]);
 
   const searchStats: SearchStats = useMemo(() => ({
-     totalResults: contents.length,
-     filteredResults: filteredContents.length,
+     totalResults: flattenedTemplates.length,
+     filteredResults: filteredTemplates.length,
      appliedFilters: {
        search: searchQuery,
        status: selectedStatuses,
@@ -691,7 +623,7 @@ export default function ContentTemplate({ session }: ContentTemplateProps) {
      },
      sortOrder,
      priceRange: priceRange[0] || priceRange[1] ? priceRange : undefined
-   }), [contents.length, filteredContents.length, searchQuery, selectedStatuses, selectedContentTypes, sortOrder, priceRange]);
+   }), [flattenedTemplates.length, filteredTemplates.length, searchQuery, selectedStatuses, selectedContentTypes, sortOrder, priceRange]);
 
   const enhancedFilters = [
    {
@@ -723,7 +655,7 @@ export default function ContentTemplate({ session }: ContentTemplateProps) {
           ]}
           selected={selectedContentTypes}
           onChange={setSelectedContentTypes}
-          disabled={templates.length === 0}
+          disabled={flattenedTemplates.length === 0}
         />
       ),
     },
@@ -754,7 +686,7 @@ export default function ContentTemplate({ session }: ContentTemplateProps) {
           onChange={handleTaggedWithChange}
           autoComplete="off"
           labelHidden
-          disabled={templates.length === 0}
+          disabled={flattenedTemplates.length === 0}
           placeholder="Enter tags..."
         />
       ),
@@ -775,7 +707,7 @@ export default function ContentTemplate({ session }: ContentTemplateProps) {
               }}
               autoComplete="off"
               prefix="$"
-              disabled={templates.length === 0}
+              disabled={flattenedTemplates.length === 0}
             />
             <TextField
               label="Max Price"
@@ -787,7 +719,7 @@ export default function ContentTemplate({ session }: ContentTemplateProps) {
               }}
               autoComplete="off"
               prefix="$"
-              disabled={templates.length === 0}
+              disabled={flattenedTemplates.length === 0}
             />
           </div>
         </div>
@@ -811,7 +743,7 @@ export default function ContentTemplate({ session }: ContentTemplateProps) {
    }
   ].map(filter => ({
     ...filter,
-    filter: templates.length === 0 ? React.cloneElement(filter.filter, { disabled: true }) : filter.filter
+    filter: flattenedTemplates.length === 0 ? React.cloneElement(filter.filter, { disabled: true }) : filter.filter
   }));
 
   const handleNavigation = useCallback(() => {
@@ -848,19 +780,24 @@ export default function ContentTemplate({ session }: ContentTemplateProps) {
       <Page
         title="Content Templates"
         subtitle="Manage and track your template"
+        backAction={{
+          content: 'Back To Homepage',
+          onAction: handleCreateNewContent,
+        }}
         primaryAction={
           <Button primary onClick={handleCreateNewContent}>
             Create New Content
           </Button>
         }
+        fullWidth
       >
         <Layout>
-          <Modal.Section>
-            <div className="h-[calc(100vh-200px)] flex flex-col">
+          <Layout.Section>
+            <div className="flex flex-col">
               <div className="sticky top-0 z-10 bg-surface py-2">
                 <BlockStack gap="400">
                   <TextField
-                    label="Search products"
+                    label="Search templates"
                     value={searchDebounce}
                     onChange={setSearchDebounce}
                     placeholder="Search by title, category, vendor, tags, or SKU..."
@@ -928,13 +865,13 @@ export default function ContentTemplate({ session }: ContentTemplateProps) {
                 </BlockStack>
               </div>
               <div className="flex-1 overflow-y-auto">
-                {loading ? (
-                  <div className="flex justify-center items-center h-64">
+                {isLoading ? (
+                  <div className="flex justify-center items-center">
                     <Spinner size="large" />
                   </div>
                 ) : filteredTemplates.length > 0 ? (
                   <TemplateGrid
-                    products={filteredTemplates}
+                    templates={filteredTemplates}
                     onAction={handleContentAction}
                     searchStats={searchStats}
                   />
@@ -977,7 +914,7 @@ export default function ContentTemplate({ session }: ContentTemplateProps) {
                 )}
               </div>
             </div>
-          </Modal.Section>
+          </Layout.Section>
         </Layout>
         {toastMarkup}
       </Page>

@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef, memo } from '
 import {
   Page,
   Layout,
+  Box,
   Card,
   ResourceList,
   ResourceItem,
@@ -35,10 +36,12 @@ import LoadingScreen from '@/components/LoadingScreen';
 import { getUserContentHistory } from "@/actions/content";
 import { AppSession } from '@/types/auth';
 import { ShopApiService } from '@/utils/api';
-import { useFlattenArticles } from '@/hooks/useFlattenArticles';
+import { useFlattenContent } from '@/hooks/useFlattenContent';
 import { eventEmitter } from '@/helpers/eventEmitter';
+import RedirectModal from './RedirectModal';
 import { ViewIcon, EditIcon, PlusIcon, DeleteIcon, ChevronDownIcon, HeartIcon } from '@shopify/polaris-icons';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { supabase } from '@/lib/supabase';
 
 interface SearchStats {
  totalResults: number;
@@ -259,65 +262,29 @@ const ContentCard = memo(({ content, onAction, loading, deletedItem }) => {
     );
   };
 
+
   const renderActionButtons = () => {
     return (
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center',
-        marginTop: '16px'
-      }}>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <Tooltip content="View Details">
-            <Button 
-              icon={EditIcon} 
-              variant="secondary" 
-              size="slim"
-              disabled={loading}
-              onClick={() => onAction('edit', content)}
-            />
-          </Tooltip>
-          <Tooltip content="Delete Content">
-            <Button 
-              icon={DeleteIcon} 
-              variant="secondary" 
-              size="slim"
-              disabled={loading  && deletedItem !== content.contentId}
-              loading={loading && deletedItem === content.contentId}
-              onClick={() => onAction('delete', content)}
-            />
-          </Tooltip>
-        </div>
-        
-        <Popover
-          active={popoverActive}
-          activator={
-            <Button 
-              icon={ChevronDownIcon}
-              variant="secondary"
-              size="slim"
-              onClick={() => setPopoverActive(!popoverActive)}
-            />
-          }
-          onClose={() => setPopoverActive(false)}
-        >
-          <ActionList
-            actionRole="menuitem"
-            items={[
-              {
-                content: 'Edit',
-                icon: EditIcon,
-                onAction: () => onAction('edit', content)
-              },
-              {
-                content: 'Delete',
-                icon: DeleteIcon,
-                destructive: true,
-                onAction: () => onAction('delete', content)
-              }
-            ]}
+      <div className="absolute bottom-4 left-8 right-8 flex justify-between items-center">
+        <Tooltip content="View Details">
+          <Button 
+            icon={EditIcon} 
+            variant="secondary" 
+            size="slim"
+            disabled={loading}
+            onClick={() => onAction('edit', content)}
           />
-        </Popover>
+        </Tooltip>
+        <Tooltip content="Delete Content">
+          <Button 
+            icon={DeleteIcon} 
+            variant="secondary" 
+            size="slim"
+            disabled={loading  && deletedItem !== content.contentId}
+            loading={loading && deletedItem === content.contentId}
+            onClick={() => onAction('delete', content)}
+          />
+        </Tooltip>
       </div>
     );
   };
@@ -328,19 +295,13 @@ const ContentCard = memo(({ content, onAction, loading, deletedItem }) => {
       accessibilityLabel={`View details for ${content?.title || content?.article_title}`}
       name={content?.title || content?.article_title}
     >
-      <Card 
-        key={content?.id} 
-        padding="400"
-        background="bg-surface-secondary"
-        roundedAbove="sm"
-        shadow="md"
-      >
+      <Box className="p-4 h-[400px] border border-gray-200 shadow-sm rounded-lg bg-white relative">
         <BlockStack gap="400">
           {renderTemplateImage()}
           {renderContentDetails()}
           {renderActionButtons()}
         </BlockStack>
-      </Card>
+      </Box>
     </ResourceItem>
   );
 });
@@ -348,6 +309,7 @@ const ContentCard = memo(({ content, onAction, loading, deletedItem }) => {
 const VISIBLE_ITEMS = 4;
 const TOTAL_VISIBLE_ITEMS = 10;
 const BATCH_SIZE = 50;
+const HISTORY_UPDATE_DELAY = 1000;
 
 interface ContentHistoryPageProps {
   session: AppSession;
@@ -362,7 +324,8 @@ export default function CarouselContentHistory({ session }: ContentHistoryPagePr
   const [isLoading, setIsLoading] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [currentLimit, setCurrentLimit] = useState(16);
+  const [currentLimit, setCurrentLimit] = useState(8);
+  const [paginationLimit, setPaginationLimit] = useState(1);
   const [totalContents, setTotalContents] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -377,8 +340,10 @@ export default function CarouselContentHistory({ session }: ContentHistoryPagePr
   const [minMaxPrices, setMinMaxPrices] = useState<{ min: number; max: number }>({ min: 0, max: 1000 });
   const searchTimeout = useRef<NodeJS.Timeout>();
   const [confirmDeleteModal, setConfirmDeleteModal] = useState(false);
+  const [showRedirectModal, setShowRedirectModal] = useState(false);
+  const [isSetupLoading, setIsSetupLoading] = useState<boolean>(false);
   const { shopName, shopifyOfflineAccessToken: accessToken } = session;
-  const { flattenArticles } = useFlattenArticles();
+  const { flattenBlogs, flattenArticles, flattenProducts } = useFlattenContent();
   const { app } = useAppBridge();
   const redirect = app && Redirect.create(app);
   const searchParams = useSearchParams();
@@ -425,7 +390,7 @@ export default function CarouselContentHistory({ session }: ContentHistoryPagePr
       [],
     );
 
-  const fetchContentHistory = useCallback(async (limit: number) => {
+  const fetchContentHistory = useCallback(async (pagination: number, limit: number) => {
     if (!shopName) return;
     try {
       setIsLoading(true);
@@ -433,15 +398,16 @@ export default function CarouselContentHistory({ session }: ContentHistoryPagePr
       const result = await ShopApiService.getList(
         accessToken, 
         shopName,
-        1,
+        pagination,
         limit
       );
       const flattenedArticles = flattenArticles(result?.articles);
-      const flattenedBlogs = flattenArticles(result?.blogs);
+      const flattenedBlogs = flattenBlogs(result?.blogs);
+      const flattenedProducts = flattenProducts(result?.products);
       const combinedArray = [
         ...flattenedArticles,
         ...flattenedBlogs,
-        ...(result.products || [])
+        ...flattenedProducts
       ];
       setContents(combinedArray);
       setTotalContents(result.total);
@@ -455,22 +421,25 @@ export default function CarouselContentHistory({ session }: ContentHistoryPagePr
   const memoizedContents = useMemo(() => contents, [contents]);
 
   const loadMoreContent = useCallback(async () => {
-    const newLimit = currentLimit + 16;
+    const newPaginationLimit = paginationLimit + 1;
     try {
       setLoadingMore(true);
       const result = await ShopApiService.getList(
         accessToken, 
         shopName,
-        1,
+        newPaginationLimit,
         newLimit
       );
       const flattenedArticles = flattenArticles(result?.articles);
+      const flattenedBlogs = flattenBlogs(result?.blogs);
+      const flattenedProducts = flattenProducts(result?.products);
       const combinedArray = [
         ...flattenedArticles,
-        ...(result.articles || [])
+        ...flattenedBlogs,
+        ...flattenedProducts
       ];
       setContents(combinedArray);
-      setCurrentLimit(newLimit);
+      setPaginationLimit(newPaginationLimit);
       setTotalContents(result.total);
     } catch (error) {
       console.error('Failed to load more content', error);
@@ -481,8 +450,8 @@ export default function CarouselContentHistory({ session }: ContentHistoryPagePr
 
   useEffect(() => {
     if (isLoading) return;
-    fetchContentHistory(currentLimit);
-  }, [fetchContentHistory, currentLimit]);
+    fetchContentHistory(paginationLimit, currentLimit);
+  }, [fetchContentHistory]);
 
   useEffect(() => {
     const unsubscribe = eventEmitter.subscribe('formSubmitted', () => {
@@ -494,12 +463,13 @@ export default function CarouselContentHistory({ session }: ContentHistoryPagePr
   useEffect(() => {
     if (isPublishing) {
       const timer = setTimeout(() => {
-        fetchContentHistory(currentLimit);
+        setPaginationLimit(1);
+        fetchContentHistory(paginationLimit, currentLimit);
         setIsPublishing(false);
       }, HISTORY_UPDATE_DELAY);
       return () => clearTimeout(timer);
     }
-  }, [isPublishing, fetchContentHistory, currentLimit]);
+  }, [isPublishing, fetchContentHistory, currentLimit, paginationLimit]);
 
   const filteredContents = useMemo(() => {
     let filtered = contents.map(content => ({
@@ -521,7 +491,7 @@ export default function CarouselContentHistory({ session }: ContentHistoryPagePr
     }
     if (priceRange[0] > minMaxPrices.min || priceRange[1] < minMaxPrices.max) {
       filtered = filtered.filter(content => {
-        if (!('product_type' in content)) return true; // Skip non-products
+        if (!('product_type' in content)) return true;
         const price = Number(content.variants?.[0]?.price) || 0;
         return price >= priceRange[0] && price <= priceRange[1];
       });
@@ -602,6 +572,35 @@ const searchStats: SearchStats = useMemo(() => ({
    priceRange: priceRange[0] || priceRange[1] ? priceRange : undefined
  }), [contents.length, filteredContents.length, searchQuery, selectedStatuses, selectedContentTypes, sortOrder, priceRange]);
 
+  const setUpShopStorage = useCallback(async () => {
+    if (!shopName) return;
+    setIsSetupLoading(true);
+    try {
+      const { data: existingFiles, error: listError } = await supabase.storage
+        .from('optiwrite-images')
+        .list(`${shopName}`);
+      if (listError) {
+        console.error("Error checking folder:", listError);
+        throw listError;
+      }
+      if (existingFiles && existingFiles.length > 0) {
+        const filesToRemove = existingFiles.map((file) => `${shopName}/${file.name}`);
+        const { error: removeError } = await supabase.storage
+          .from('optiwrite-images')
+          .remove(filesToRemove);
+        if (removeError) {
+          console.error("Error clearing folder:", removeError);
+          throw removeError;
+        }
+      }
+    } catch (error) {
+      console.error("Error setting up storage:", error);
+      throw error;
+    } finally {
+      setIsSetupLoading(false);
+    }
+  }, [shopName]);
+
   const handleCreateNewContent = useCallback(() => {
     if (!shop || !host || !redirect) return;
     const queryParams = new URLSearchParams({ shop, host }).toString();
@@ -610,15 +609,20 @@ const searchStats: SearchStats = useMemo(() => ({
     });
   }, [redirect, shop, host]);
 
-  const handleEdit = useCallback((content: Content) => {
+  const handleEdit = useCallback(async(contentId: string) => {
     if (!shop || !host || !redirect) {
       console.error('Missing required navigation parameters');
       return;
     }
     const queryParams = new URLSearchParams({ shop, host }).toString();
-    const returnUrl = `/content/${content.contentId}?${queryParams}`;
+    await setUpShopStorage();
+    const returnUrl = `/content/${contentId}?${queryParams}`;
     redirect.dispatch(Redirect.Action.APP, { path: returnUrl });
-  }, [redirect, shop, host]);
+  }, [redirect, setUpShopStorage, shop, host]);
+
+  const onOpenEditView = useCallback(async () => {
+    setShowRedirectModal(true);
+  }, []);
 
   const handleDelete = useCallback(async(contentId: string) => {
     if (!shopName || !accessToken) {
@@ -647,7 +651,7 @@ const searchStats: SearchStats = useMemo(() => ({
         break;
       case 'edit':
         setSelectedContent(content);
-        handleEdit(content);
+        onOpenEditView();
         break;
       case 'delete':
         setSelectedContent(content);
@@ -816,7 +820,7 @@ const searchStats: SearchStats = useMemo(() => ({
             </div>
 
             <TextField
-              label="Search products"
+              label="Search contents"
               value={searchDebounce}
               onChange={setSearchDebounce}
               placeholder="Search by title, category, vendor, tags, or SKU..."
@@ -866,8 +870,8 @@ const searchStats: SearchStats = useMemo(() => ({
             <div className="mt-2">
               <Text variant="bodyMd" tone="subdued">
                 {searchStats.filteredResults === searchStats.totalResults ? 
-                  `${searchStats.totalResults} total products` : 
-                  `Showing ${searchStats.filteredResults} of ${searchStats.totalResults} products`}
+                  `${searchStats.totalResults} total items` : 
+                  `Showing ${searchStats.filteredResults} of ${searchStats.totalResults} items`}
                 {Object.values(searchStats.appliedFilters).some(f => f && f.length) && (
                   <span className="ml-1">
                     (filtered by: {[
@@ -930,7 +934,7 @@ const searchStats: SearchStats = useMemo(() => ({
                 </Grid>
               ) : (
                 <EmptyState
-                  heading="No products found"
+                  heading="No items found"
                   action={{
                     content: 'Publish your first content',
                     onAction: handleCreateNewContent,
@@ -974,11 +978,20 @@ const searchStats: SearchStats = useMemo(() => ({
         >
           <Modal.Section>
             <Text>
-              Are you sure you want to delete "{selectedContent?.title || selectedContent?.article_title}"? 
+              Are you sure you want to delete "{selectedContent?.title || selectedContent?.article_title || selectedContent?.blog_title}"? 
               This action cannot be undone.
             </Text>
           </Modal.Section>
         </Modal>
+        {showRedirectModal && (
+          <RedirectModal
+            content={selectedContent} 
+            isOpen={showRedirectModal}
+            onClose={() => setShowRedirectModal(false)}
+            onProceed={handleEdit}
+            loading={isSetupLoading}
+          />
+        )}
       </div>
     </div>
   );

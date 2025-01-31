@@ -1,5 +1,6 @@
-import { Grid } from '@mui/material';
+import React from 'react';
 import { HomeIcon, OrderIcon, ChatIcon, ComposeIcon, AppsIcon } from '@shopify/polaris-icons';
+import { Grid, LegacyCard, Box } from '@shopify/polaris';
 import { cn } from '@/lib/utils';
 import { useState, useCallback, useRef } from 'react';
 import { TEMPLATE_OPTIONS } from '@/constants/template';
@@ -12,7 +13,6 @@ import { BaseFormProps } from './FormProvider';
 
 interface DynamicLayoutProps extends BaseFormProps { 
   version: string;
-  isPreview: boolean;
   isFullScreen: boolean;
   onToggleFullScreen: () => void;
   toneOptions?: any;
@@ -23,11 +23,12 @@ interface DynamicLayoutProps extends BaseFormProps {
   onAction?: (eventType: string, values: CONTENT) => void;
   onCancelAction?: () => void;
   actionLoading?: boolean;
+  contentRef?: React.RefObject<HTMLFormElement>
 }
 
 export default function DynamicLayout({ 
   version,
-  isPreview, 
+  theme,
   isFullScreen, 
   onToggleFullScreen, 
   prompt, 
@@ -35,6 +36,12 @@ export default function DynamicLayout({
   urls,
   errors,
   blogs,
+  onLoadMoreBlogs,
+  isBlogLoading,
+  blogLoadingError,
+  loadingMoreBlogs,
+  loadingBlogProgress,
+  totalBlogs,
   toneOptions,
   selectedTone,
   onSelectTone, 
@@ -78,16 +85,24 @@ export default function DynamicLayout({
   localContentData,
   error,
   setError,
+  contentRef
 }: DynamicLayoutProps) {
   const renderForm = (version: string) => {
     switch (version.toLowerCase()) {
       case 'light':
         return (
           <LightVersionForm 
+            theme={theme}
             prompt={prompt}
             onPromptChange={onPromptChange} 
             urls={urls} 
             blogs={blogs}
+            totalBlogs={totalBlogs}
+            isBlogLoading={isBlogLoading}
+            blogLoadingError={blogLoadingError}
+            onLoadMoreBlogs={onLoadMoreBlogs}
+            loadingMoreBlogs={loadingMoreBlogs}
+            loadingBlogProgress={loadingBlogProgress}
             errors={errors}
             onAddUrl={onAddUrl}
             onUrlChange={onUrlChange} 
@@ -130,10 +145,17 @@ export default function DynamicLayout({
       case 'full':
         return (
           <FullVersionForm 
+            theme={theme}
             prompt={prompt}
             onPromptChange={onPromptChange} 
             urls={urls}
             blogs={blogs}
+            totalBlogs={totalBlogs}
+            onLoadMoreBlogs={onLoadMoreBlogs}
+            loadingMoreBlogs={loadingMoreBlogs}
+            isBlogLoading={isBlogLoading}
+            blogLoadingError={blogLoadingError}
+            loadingBlogProgress={loadingBlogProgress}
             errors={errors}
             onAddUrl={onAddUrl}
             onUrlChange={onUrlChange} 
@@ -182,43 +204,49 @@ export default function DynamicLayout({
   };
 
   return (
-    <Grid container spacing={2}>
-      {isFullScreen && !isPreview && outputContent ? (
-        <Grid item xs={12}>
-         <ContentRenderedView 
-            content={outputContent} 
-            contentType={selectedCategory}
+    <Box ref={contentRef} className='w-full h-screen bg-transparent'>
+      {outputContent && Object.entries(outputContent).length > 0 ? (
+        isFullScreen ? (
+          <ContentRenderedView
+            content={outputContent}
+            contentType={outputContent?.input?.category}
             onOpenEditMode={onOpenEditMode}
             isFullScreen={isFullScreen}
-            onToggleFullScreen={onToggleFullScreen} 
+            onToggleFullScreen={onToggleFullScreen}
             onAction={onAction}
             onCancel={onCancelAction}
-            isPreviewMode={isPreview} 
             loading={actionLoading}
+            isPreviewMode
           />
-        </Grid>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-8">
+            <div className="h-full max-h-screen overflow-y-auto flex flex-col">
+              <div className="flex-1 flex flex-col -mt-4">
+                {renderForm(version)}
+              </div>
+            </div>
+            <div className="h-full flex flex-col">
+              <div className="flex-1 max-h-screen overflow-y-auto flex flex-col">
+                <div className="flex flex-1 flex-col">
+                  <ContentRenderedView
+                    content={outputContent}
+                    contentType={outputContent?.input?.category}
+                    onOpenEditMode={onOpenEditMode}
+                    isFullScreen={isFullScreen}
+                    onToggleFullScreen={onToggleFullScreen}
+                    onAction={onAction}
+                    onCancel={onCancelAction}
+                    loading={actionLoading}
+                    isPreviewMode
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )
       ) : (
-        <>
-          <Grid item xs={12} md={isPreview ? 6 : 12}>
-            {renderForm(version)}
-          </Grid>
-          {isPreview && outputContent && (
-            <Grid item xs={12} md={6}>
-              <ContentRenderedView 
-                content={outputContent} 
-                contentType={selectedCategory}
-                onOpenEditMode={onOpenEditMode}
-                isFullScreen={isFullScreen}
-                onToggleFullScreen={onToggleFullScreen}
-                onAction={onAction}
-                onCancel={onCancelAction}
-                isPreviewMode={isPreview} 
-                loading={actionLoading}
-              />
-            </Grid>
-          )}
-        </>
+        renderForm(version)
       )}
-    </Grid>
+    </Box>
   );
-};
+}

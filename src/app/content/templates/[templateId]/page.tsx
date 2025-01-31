@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   InlineStack,
   Box,
+  Frame,
+  Page,
   Button,
   BlockStack,
   Tooltip
@@ -121,11 +123,11 @@ const ContentTemplatePage = ({ params, appSession }: ContentTemplatePageProps) =
         isFavorite: false
       });
       return acc;
-    }, {} as Record<'blog' | 'article' | 'product', Template[]>);
+    }, {} as Record<'blog' | 'article' | 'blogArticle' | 'product', Template[]>);
     if (!storedTemplates || Object.values(storedTemplates).every(arr => arr.length === 0)) {
       Object.entries(templatesByCategory).forEach(([type, items]) => {
         dispatch(createTemplates({
-          type: type as 'blog' | 'article' | 'product',
+          type: type as 'blog' | 'article' | 'blogArticle' | 'product',
           items
         }));
       });
@@ -156,7 +158,7 @@ const ContentTemplatePage = ({ params, appSession }: ContentTemplatePageProps) =
         );
         if (needsUpdate) {
           dispatch(updateTemplates({
-            type: type as 'blog' | 'article' | 'product',
+            type: type as 'blog' | 'article' | 'blogArticle' | 'product',
             items: updatedTemplates
           }));
         }
@@ -176,37 +178,64 @@ const ContentTemplatePage = ({ params, appSession }: ContentTemplatePageProps) =
     }));
   }, [dispatch, storedTemplates]);
 
-  const handleView = useCallback((template: Content) => {
-    if (!shop || !host || !redirect) {
-      console.error('Missing required navigation parameters');
+  const handleAddItem = useCallback((template: EnhancedTemplateOption) => {
+    if (templateItems.length >= 20) {
+      setToast({
+        message: 'Cannot add item. Maximum 20 items required.',
+        error: true
+      });
       return;
     }
-    const queryParams = new URLSearchParams({ shop, host }).toString();
-    const returnUrl = `/template/${template.id}?${queryParams}`;
-    redirect.dispatch(Redirect.Action.APP, { path: returnUrl });
-  }, [redirect, shop, host]);
+    dispatch(addItemToList({
+      listName:'templateList', 
+      item: {
+        ...template
+      }
+    }));
+    setToast({
+      message: `Template "${template.id}" has been added successfully.`,
+      error: false
+    });
+  }, [templateItems.length, dispatch]);
 
   const sortedTemplates = useMemo(() => {
     const flattenedTemplates = [
       ...(storedTemplates.blog || []),
       ...(storedTemplates.article || []),
+      ...(storedTemplates.blogArticle || []),
       ...(storedTemplates.product || []),
     ];
     return flattenedTemplates.sort((a, b) => 
       (b.isFavorite ? 1 : 0) - (a.isFavorite ? 1 : 0)
     );
   }, [storedTemplates]);
-  const onFullscreenToggle = () => {
-    setIsFullScreen(!isFullScreen);
+
+  const handleContentAction = (type: 'view' | 'favorite' | 'list', template: ShopifyContent) => {
+    switch (type) {
+      case 'favorite':
+        handleToggleFavorite(template);
+        break;
+      case 'list':
+        handleAddItem(template);
+        break;
+    }
   };
 
-  const handleCancelAction = () => {
-    onCancelAction();
-  };
+  const handleNavigation = useCallback(() => {
+    if (!shop || !host || !redirect) {
+      console.error('Missing required navigation parameters');
+      return;
+    }
+    const queryParams = new URLSearchParams({
+      shop,
+      host
+    }).toString();
+    const returnUrl = `/content/templates?${queryParams}`;
+    redirect.dispatch(Redirect.Action.APP, {
+      path: returnUrl
+    });
+  }, [searchParams, redirect, shop, host]);
 
-  const handleSaveAction = () => {
-    console.log('Save action triggered');
-  };
 
   if (template === undefined || isLoading) {
     return <ContentDisplaySkeleton />;
@@ -215,63 +244,29 @@ const ContentTemplatePage = ({ params, appSession }: ContentTemplatePageProps) =
   if (!template) {
     return (
       <div className="p-4">
-        Content not found
+        Template not found
       </div>
     );
   }
 
   return (
-    <motion.div initial="hidden" animate="visible" className="mt-4">
-      <Grid container spacing={2}>
-          <Grid item xs={12}>
-            <motion.div
-              initial={{ x: isFullScreen ? 100 : 0, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              transition={{ type: "spring", stiffness: 100, damping: 15 }}
-            >
-              <TemplateRenderedView 
-                content={template} 
-                contentType={template?.category?.toUpperCase()}
-                onToggleFullScreen={onFullscreenToggle} 
-                onOpenEditMode={onNavigateBack}
-                isPreviewedMode={false}
-              />
-            </motion.div>
-          </Grid>
-      </Grid>
-
-      <Box paddingBlockEnd="500" />
-      <Box paddingBlockStart="300">
-        <InlineStack align="space-between" blockAlign="center" gap="500">
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <Tooltip content="View Details">
-              <Button 
-                icon={ViewIcon} 
-                variant="secondary" 
-                size="slim"
-                onClick={() => handleContentAction('view', template)}
-              />
-            </Tooltip>
-            <Tooltip content="Add to List">
-              <Button 
-                icon={PlusIcon} 
-                variant="secondary" 
-                size="slim"
-                onClick={() => handleContentAction('list', template)}
-              />
-            </Tooltip>
-            <Tooltip content={template?.isFavorite ? "Remove from Favorites" : "Add to Favorites"}>
-              <Button 
-                icon={HeartIcon} 
-                variant={template?.isFavorite ? "primary" : "secondary"} 
-                size="slim"
-                onClick={() => handleContentAction('favorite', template)}
-              />
-            </Tooltip>
-          </div>
-        </InlineStack>
-      </Box>
-    </motion.div>
+    <Frame>
+      <Page
+        title="Content Template"
+        subtitle="View Template Content"
+        backAction={{
+          content: 'Back To TemplatePage',
+          onAction: handleNavigation,
+        }}
+        fullWidth
+      >
+        <TemplateRenderedView 
+          template={template} 
+          category={template?.category?.toUpperCase()}
+          onAction={handleContentAction} 
+        />  
+      </Page>
+    </Frame>  
   );
 };
 

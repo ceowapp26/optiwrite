@@ -5,7 +5,7 @@ export const runUninstallWorker = async (shop) => {
     const now = new Date();
     const deletedRecords = await prisma.webhookLog.deleteMany({
       where: {
-        shopId: shop,
+        shopName: shop,
         topic: 'APP_UNINSTALLED_COMPLETED',
         createdAt: {
           lte: new Date(now.getTime() - 30 * 60 * 1000), 

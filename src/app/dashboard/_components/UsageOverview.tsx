@@ -221,6 +221,20 @@ const UsageOverview: React.FC<{ usageState: UsageState }> = ({ usageState }) => 
                 <Text variant="bodySm" color="subdued">Current billing period</Text>
               </BlockStack>
             </InlineStack>
+            <Grid>
+              <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
+                <MetricBox
+                  label="Total Credits"
+                  value={formatNumber(usageState?.subscription?.creditLimit)}
+                />
+              </Grid.Cell>
+              <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
+                <MetricBox
+                  label="Remaining Credits"
+                  value={formatNumber(usageState?.subscription?.remainingCredits)}
+                />
+              </Grid.Cell>
+            </Grid>
             {usageState?.subscription?.serviceUsage[Service.AI_API] && (
               <>
                 <Divider />
@@ -229,8 +243,20 @@ const UsageOverview: React.FC<{ usageState: UsageState }> = ({ usageState }) => 
                   <Grid>
                     <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
                       <MetricBox
-                        label="Requests Used"
-                        value={formatNumber(usageState?.subscription?.serviceUsage[Service.AI_API]?.totalRequestsUsed)}
+                        label="Total Credits"
+                        value={formatNumber(usageState?.subscription?.serviceUsage[Service.AI_API]?.totalCredits)}
+                      />
+                    </Grid.Cell>
+                    <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
+                      <MetricBox
+                        label="Remaining Credits"
+                        value={formatNumber(usageState?.subscription?.serviceUsage[Service.AI_API]?.remainingCredits)}
+                      />
+                    </Grid.Cell>
+                    <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
+                      <MetricBox
+                        label="Total Requests"
+                        value={formatNumber(usageState?.subscription?.serviceUsage[Service.AI_API]?.totalRequests)}
                       />
                     </Grid.Cell>
                     <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
@@ -262,8 +288,20 @@ const UsageOverview: React.FC<{ usageState: UsageState }> = ({ usageState }) => 
                   <Grid>
                     <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
                       <MetricBox
-                        label="Requests Used"
-                        value={formatNumber(usageState?.subscription?.serviceUsage[Service.CRAWL_API]?.totalRequestsUsed)}
+                        label="Total Credits"
+                        value={formatNumber(usageState?.subscription?.serviceUsage[Service.CRAWL_API]?.totalCredits)}
+                      />
+                    </Grid.Cell>
+                    <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
+                      <MetricBox
+                        label="Remaining Credits"
+                        value={formatNumber(usageState?.subscription?.serviceUsage[Service.CRAWL_API]?.remainingCredits)}
+                      />
+                    </Grid.Cell>
+                    <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
+                      <MetricBox
+                        label="Total Requests"
+                        value={formatNumber(usageState?.subscription?.serviceUsage[Service.CRAWL_API]?.totalRequests)}
                       />
                     </Grid.Cell>
                     <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
@@ -324,6 +362,8 @@ const UsageOverview: React.FC<{ usageState: UsageState }> = ({ usageState }) => 
       if (pkg.serviceUsage?.[Service.AI_API]) {
         acc[groupName].serviceUsage[Service.AI_API].totalRequests += pkg.serviceUsage[Service.AI_API].totalRequests;
         acc[groupName].serviceUsage[Service.AI_API].remainingRequests += pkg.serviceUsage[Service.AI_API].remainingRequests;
+        acc[groupName].serviceUsage[Service.AI_API].totalCredits += pkg.serviceUsage[Service.AI_API].totalCredits;
+        acc[groupName].serviceUsage[Service.AI_API].remainingCredits += pkg.serviceUsage[Service.AI_API].remainingCredits;
         acc[groupName].serviceUsage[Service.AI_API].percentageUsed = 
           (acc[groupName].serviceUsage[Service.AI_API].totalRequests / 
           (acc[groupName].serviceUsage[Service.AI_API].totalRequests + acc[groupName].serviceUsage[Service.AI_API].remainingRequests)) * 100;
@@ -332,6 +372,8 @@ const UsageOverview: React.FC<{ usageState: UsageState }> = ({ usageState }) => 
       if (pkg.serviceUsage?.[Service.CRAWL_API]) {
         acc[groupName].serviceUsage[Service.CRAWL_API].totalRequests += pkg.serviceUsage[Service.CRAWL_API].totalRequests;
         acc[groupName].serviceUsage[Service.CRAWL_API].remainingRequests += pkg.serviceUsage[Service.CRAWL_API].remainingRequests;
+        acc[groupName].serviceUsage[Service.CRAWL_API].totalCredits += pkg.serviceUsage[Service.CRAWL_API].totalCredits;
+        acc[groupName].serviceUsage[Service.CRAWL_API].remainingCredits += pkg.serviceUsage[Service.CRAWL_API].remainingCredits;
         acc[groupName].serviceUsage[Service.CRAWL_API].percentageUsed = 
           (acc[groupName].serviceUsage[Service.CRAWL_API].totalRequests / 
           (acc[groupName].serviceUsage[Service.CRAWL_API].totalRequests + acc[groupName].serviceUsage[Service.CRAWL_API].remainingRequests)) * 100;
@@ -357,7 +399,6 @@ const UsageOverview: React.FC<{ usageState: UsageState }> = ({ usageState }) => 
               <Grid>
                 {packageOrder.map((packageName) => {
                   const groupData = groupedPackages[packageName];
-                  // Skip if no packages in this group
                   if (!groupData) return null;
 
                   const percentageUsed = (groupData.totalCreditsUsed / groupData.totalCreditLimit) * 100;
@@ -412,6 +453,18 @@ const UsageOverview: React.FC<{ usageState: UsageState }> = ({ usageState }) => 
                               <Grid>
                                 <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
                                   <MetricBox
+                                    label="Total Credits"
+                                    value={formatNumber(groupData.serviceUsage[Service.AI_API].totalCredits)}
+                                  />
+                                </Grid.Cell>
+                                <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
+                                  <MetricBox
+                                    label="Remaining Credits"
+                                    value={formatNumber(groupData.serviceUsage[Service.AI_API].remainingCredits)}
+                                  />
+                                </Grid.Cell>
+                                <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
+                                  <MetricBox
                                     label="Total Requests"
                                     value={formatNumber(groupData.serviceUsage[Service.AI_API].totalRequests)}
                                   />
@@ -435,6 +488,19 @@ const UsageOverview: React.FC<{ usageState: UsageState }> = ({ usageState }) => 
                               <Divider />
                               <Text variant="headingMd">Crawl API Usage</Text>
                               <Grid>
+                                <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
+                                  <MetricBox
+                                    label="Total Credits"
+                                    value={formatNumber(groupData.serviceUsage[Service.CRAWL_API].totalCredits)}
+                                  />
+                                </Grid.Cell>
+                                <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
+                                  <MetricBox
+                                    label="Remaining Credits"
+                                    value={formatNumber(groupData.serviceUsage[Service.CRAWL_API].remainingCredits)}
+                                  />
+                                </Grid.Cell>
+
                                 <Grid.Cell columnSpan={{ xs: 6, sm: 6, md: 6, lg: 6, xl: 6 }}>
                                   <MetricBox
                                     label="Total Requests"
@@ -562,6 +628,7 @@ const UsageOverview: React.FC<{ usageState: UsageState }> = ({ usageState }) => 
           <p>You are approaching your usage limits. Consider purchasing additional credits to ensure uninterrupted service.</p>
         </Banner>
       )}
+      {renderTotalUsageCard()}
       <Tabs
         tabs={[
           { content: 'Service Usage', id: 'service' },
@@ -572,7 +639,6 @@ const UsageOverview: React.FC<{ usageState: UsageState }> = ({ usageState }) => 
         selected={selectedTab}
         onSelect={setSelectedTab}
       />
-
       <Box>
         {selectedTab === 0 && (
           <BlockStack gap="400">

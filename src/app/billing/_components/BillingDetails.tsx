@@ -3,28 +3,54 @@ import { AlertCircle, CheckCircle2, Clock, Calendar, CreditCard, Package, XCircl
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { SubscriptionDetails } from '@/types/billing';
-import { PromotionUnit } from '@prisma/client';
-import {
-  CatalogIcon
-} from '@shopify/polaris-icons';
+import { PromotionUnit, SubscriptionStatus, PaymentStatus } from '@prisma/client';
+import { CatalogIcon } from '@shopify/polaris-icons';
  
 const StatusBadge = ({ status }: { status: string }) => {
   const getStatusColor = (status: string) => {
     const colors = {
       ACTIVE: 'bg-green-100 text-green-800',
-      FROZEN: 'bg-blue-100 text-blue-800',
+      FROZEN: 'bg-yellow-100 text-yellow-800',
+      ON_HOLD: 'bg-yellow-100 text-yellow-800',
       EXPIRED: 'bg-red-100 text-red-800',
       CANCELLED: 'bg-gray-100 text-gray-800',
+      TRIAL: 'bg-green-100 text-green-800',
       PENDING: 'bg-yellow-100 text-yellow-800',
       SUCCEEDED: 'bg-green-100 text-green-800',
-      FAILED: 'bg-red-100 text-red-800'
+      FAILED: 'bg-red-100 text-red-800',
     };
     return colors[status] || 'bg-gray-100 text-gray-800';
   };
 
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'TRIAL':
+        return 'Trial';
+      case 'ON_HOLD':
+        return 'On Hold';
+      case 'FROZEN':
+        return 'Frozen';
+      case 'EXPIRED':
+        return 'Expired';
+      case 'CANCELLED':
+        return 'Cancelled';
+      case 'PENDING':
+        return 'Pending';
+      case 'SUCCEEDED':
+        return 'Succeeded';
+      case 'FAILED':
+        return 'Failed';
+      default:
+        return 'Active';
+    }
+  };
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium ${getStatusColor(status)}`}>
-      {status.charAt(0) + status.slice(1).toLowerCase()}
+    <span
+      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium ${getStatusColor(
+        status
+      )}`}
+    >
+      {getStatusText(status)}
     </span>
   );
 };
@@ -172,17 +198,50 @@ const BillingDetails = ({
               <p className="font-medium">{formatDate(details?.endDate)}</p>
             </div>
           </div>
+          {details?.daysUntilTrialEnds > 0 && (
+            <Alert className="mt-2">
+              <Clock className="h-4 w-4" />
+              <AlertTitle>Trial Extends</AlertTitle>
+              <AlertDescription>
+                Your trial period will end in {details?.daysUntilExpiration ? Math.ceil(details.daysUntilExpiration) : 0} days on {formatDate(details?.trialEndDate)}
+              </AlertDescription>
+            </Alert>
+          )}
           {details?.daysUntilExpiration > 0 && (
             <Alert className="mt-2">
               <Clock className="h-4 w-4" />
               <AlertTitle>Renewal Coming Up</AlertTitle>
               <AlertDescription>
-                Your subscription will {details.status === 'ACTIVE' ? 'renew' : 'expire'} in {Math.ceil(details?.daysUntilExpiration)} days
+                Your subscription will {details.status === SubscriptionStatus.ACTIVE ? 'renew' : 'expire'} in {Math.ceil(details?.daysUntilExpiration)} days
               </AlertDescription>
             </Alert>
           )}
         </div>
-        {details?.latestPayment && (
+        {details?.cancellation && (
+          <div className="space-y-2">
+            <h3 className="text-lg font-semibold flex items-center gap-2">
+              <XCircle className="w-5 h-5" />
+              Cancellation Details
+            </h3>
+            <div className="p-4 bg-gray-50 rounded-lg">
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span>Cancelled On:</span>
+                  <span>{formatDate(details?.cancellation?.canceledAt)}</span>
+                </div>
+                <Alert variant="warning">
+                  <AlertTitle>Subscription Cancelled</AlertTitle>
+                  <AlertDescription>
+                    Your subscription access will end on {formatDate(details?.endDate)}
+                  </AlertDescription>
+                </Alert>
+              </div>
+            </div>
+          </div>
+        )}
+        {details?.latestPayment && 
+        details?.status !== SubscriptionStatus.TRIAL && 
+        details?.latestPayment.status === PaymentStatus.SUCCEEDED && (
           <div className="space-y-4">
             <h3 className="text-lg font-semibold flex items-center gap-2">
               <CreditCard className="w-5 h-5" />

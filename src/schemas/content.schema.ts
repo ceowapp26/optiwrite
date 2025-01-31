@@ -24,54 +24,49 @@ export type ContentProps = ProductProps | BlogProps;
 export const ProductSchema: ZodType<ProductProps> = z.object({
   title: z
     .string()
-    .min(30, { message: 'Title must be at least 30 characters' })
+    .min(10, { message: 'Title must be at least 10 characters' })
     .max(100, { message: 'Title must not exceed 100 characters' })
     .nonempty({ message: 'Title is required' }),
 
   body_html: z
     .string()
-    .min(50, { message: 'Body content must be at least 500 characters' })
-    .max(2000, { message: 'Body content must not exceed 2000 characters' }),
+    .min(50, { message: 'Body content must be at least 50 characters' })
+    .max(8000, { message: 'Body content must not exceed 8000 characters' }),
 
   meta_description: z
     .string()
-    .min(50, { message: 'Meta description must be at least 150 characters' })
+    .min(10, { message: 'Meta description must be at least 10 characters' })
     .max(300, { message: 'Meta description must not exceed 300 characters' })
     .optional(),
 
   product_type: z
     .string()
-    .min(10, { message: 'Category must be at least 10 characters' })
+    .min(3, { message: 'Category must be at least 3 characters' })
     .max(80, { message: 'Category must not exceed 80 characters' })
     .nonempty({ message: 'Category is required' }),
 
   page_title: z
     .string()
-    .min(30, { message: 'Page title must be at least 30 characters' })
-    .max(100, { message: 'Page title must not exceed 100 characters' })
+    .min(10, { message: 'Page title must be at least 10 characters' })
+    .max(200, { message: 'Page title must not exceed 200 characters' })
     .optional(),
 
   handle: z
     .string()
-    .url({ message: 'Must be a valid URL' })
-    .regex(/^https:\/\/.*\.myshopify\.com\/products\/[a-zA-Z0-9-]+$/, {
-      message: 'Must be a valid Shopify product URL',
-    })
+    .min(10, { message: 'URL handle must be at least 10 characters' })
+    .max(300, { message: 'URL handle must not exceed 300 characters' })
     .optional(),
 
   template_suffix: z.string()
-  .min(5, { message: 'Template suffix must be at least 10 characters' })
-  .max(50, { message: 'Template suffix must not exceed 50 characters' })
+  .nullable()
   .optional(),
 
   vendor: z.string()
-  .min(5, { message: 'Vendor name must be at least 10 characters' })
-  .max(100, { message: 'Vendor name must not exceed 100 characters' })
   .optional(),
   
   status: 
-    z.enum(['active', 'archived', 'draft'])
-    .default('active')
+    z.enum(['ACTIVE', 'ARCHIVED', 'DRAFT'])
+    .default('ACTIVE')
     .optional(),
 
   tags: z.string().optional(),
@@ -81,7 +76,7 @@ export const ProductSchema: ZodType<ProductProps> = z.object({
     price: z.number().min(0, { message: 'Price must be a positive number' }),
     sku: z.string(),
     weight: z.number().min(0, { message: 'Weight must be a positive number' }),
-    weight_unit: z.enum(['kg', 'g', 'oz', 'lb'])
+    weight_unit: z.enum(['GRAMS', 'KILOGRAMS', 'OUNCES', 'POUNDS'])
   })).optional(),
 
   options: z.array(z.object({
@@ -93,7 +88,8 @@ export const ProductSchema: ZodType<ProductProps> = z.object({
 
   images: z
     .array(z.string().url({ message: 'Must be valid URLs' }))
-    .optional(),
+    .optional()
+    .default([]),
 
   input_data: z.object({
     category: z.string(),
@@ -110,11 +106,11 @@ export const ProductSchema: ZodType<ProductProps> = z.object({
 export const BlogSchema: ZodType = z.object({
   blog_title: z
     .string()
-    .min(30, { message: 'Title must be at least 30 characters long' })
-    .max(100, { message: 'Title must not exceed 100 characters' })
+    .min(10, { message: 'Title must be at least 10 characters long' })
+    .max(200, { message: 'Title must not exceed 200 characters' })
     .nonempty({ message: 'Title is required' }),
 
-  blog_commentable: z.enum(['moderate', 'no', 'yes']).optional(),
+  blog_commentable: z.enum(['MODERATED', 'CLOSED', 'AUTO_PUBLISHED']).optional(),
 
   blog_feedburner: z
     .string()
@@ -124,10 +120,8 @@ export const BlogSchema: ZodType = z.object({
 
   blog_handle: z
     .string()
-    .url({ message: 'Must be a valid URL' })
-    .regex(/^https:\/\/.*\.myshopify\.com\/blogs\/[a-zA-Z0-9-]+$/, {
-      message: 'Must be a valid Shopify product URL',
-    })
+    .min(10, { message: 'URL handle must be at least 10 characters' })
+    .max(300, { message: 'URL handle must not exceed 300 characters' })
     .optional(),
 
   blog_tags: z.string().optional(),
@@ -142,47 +136,48 @@ export const BlogSchema: ZodType = z.object({
     description: z.string().nullable(), 
   })).optional(),
 
+  blog_meta_description: z
+    .string()
+    .min(10, { message: 'Meta description must be at least 10 characters' })
+    .max(300, { message: 'Meta description must not exceed 300 characters' })
+    .optional(),
+
+  blog_page_title: z
+    .string()
+    .min(10, { message: 'Page title must be at least 10 characters' })
+    .max(200, { message: 'Page title must not exceed 200 characters' })
+    .optional(),
+
   article_title: z
     .string()
-    .min(30, { message: 'Article title must be at least 30 characters long' })
-    .max(100, { message: 'Article title must not exceed 100 characters' })
+    .min(10, { message: 'Article title must be at least 10 characters long' })
+    .max(200, { message: 'Article title must not exceed 200 characters' })
     .optional(),
 
   article_author: z
     .string()
-    .max(50, { message: 'Author name must not exceed 50 characters' })
+    .max(200, { message: 'Author name must not exceed 200 characters' })
     .optional(),
 
   article_body_html: z
     .string()
-    .min(100, { message: 'Article body must be at least 500 characters long' })
-    .optional(),
+    .min(50, { message: 'Body content must be at least 50 characters' })
+    .max(8000, { message: 'Body content must not exceed 8000 characters' }),
 
   article_handle: z
     .string()
-    .url({ message: 'Must be a valid URL' })
-    .regex(/^https:\/\/.*\.myshopify\.com\/blogs\/[a-zA-Z0-9-]+$/, {
-      message: 'Must be a valid Shopify product URL',
-    })
+    .min(10, { message: 'URL handle must be at least 10 characters' })
+    .max(300, { message: 'URL handle must not exceed 300 characters' })
     .optional(),
 
   article_image: z
     .string()
     .optional(),
 
-  article_metafield: z.array(z.object({
-    key: z.string(), 
-    namespace: z.string(), 
-    value: z.union([z.string(), z.number()]),
-    value_type: z.enum(['string', 'integer']), 
-    description: z.string().nullable(), 
-  })).optional(),
-
   article_published: z.boolean().optional(),
 
   article_published_at: z
     .string()
-    .datetime({ message: 'Must be a valid date-time string' })
     .optional(),
 
   article_summary_html: z
@@ -191,6 +186,18 @@ export const BlogSchema: ZodType = z.object({
     .optional(),
 
   article_tags: z.string().optional(),
+
+  article_meta_description: z
+    .string()
+    .min(10, { message: 'Meta description must be at least 10 characters' })
+    .max(300, { message: 'Meta description must not exceed 300 characters' })
+    .optional(),
+
+  article_page_title: z
+    .string()
+    .min(10, { message: 'Page title must be at least 10 characters' })
+    .max(200, { message: 'Page title must not exceed 200 characters' })
+    .optional(),
 
   article_template_suffix: z.string().optional(),
 
@@ -213,11 +220,9 @@ export const BlogSchema: ZodType = z.object({
 export const ArticleSchema: ZodType = z.object({
   blog_title: z
     .string()
-    .min(30, { message: 'Title must be at least 30 characters long' })
-    .max(100, { message: 'Title must not exceed 100 characters' })
+    .min(10, { message: 'Title must be at least 10 characters long' })
+    .max(200, { message: 'Title must not exceed 200 characters' })
     .optional(),
-
-  blog_commentable: z.enum(['moderate', 'no', 'yes']).optional(),
 
   blog_feedburner: z
     .string()
@@ -227,10 +232,8 @@ export const ArticleSchema: ZodType = z.object({
 
   blog_handle: z
     .string()
-    .url({ message: 'Must be a valid URL' })
-    .regex(/^https:\/\/.*\.myshopify\.com\/blogs\/[a-zA-Z0-9-]+$/, {
-      message: 'Must be a valid Shopify product URL',
-    })
+    .min(10, { message: 'URL handle must be at least 10 characters' })
+    .max(300, { message: 'URL handle must not exceed 300 characters' })
     .optional(),
 
   blog_tags: z.string().optional(),
@@ -245,47 +248,48 @@ export const ArticleSchema: ZodType = z.object({
     description: z.string().nullable(), 
   })).optional(),
 
+  blog_meta_description: z
+    .string()
+    .min(10, { message: 'Meta description must be at least 10 characters' })
+    .max(300, { message: 'Meta description must not exceed 300 characters' })
+    .optional(),
+
+  blog_page_title: z
+    .string()
+    .min(10, { message: 'Page title must be at least 10 characters' })
+    .max(200, { message: 'Page title must not exceed 200 characters' })
+    .optional(),
+
   article_title: z
     .string()
-    .min(30, { message: 'Article title must be at least 30 characters long' })
+    .min(10, { message: 'Article title must be at least 10 characters long' })
     .max(100, { message: 'Article title must not exceed 100 characters' })
-    .nonempty({ message: 'Article title is required' }),
+    .optional(),
 
   article_author: z
     .string()
-    .max(50, { message: 'Author name must not exceed 50 characters' })
-    .nonempty({ message: 'Author name is required' }),
+    .max(200, { message: 'Author name must not exceed 200 characters' })
+    .optional(),
 
   article_body_html: z
     .string()
-    .min(100, { message: 'Article body must be at least 500 characters long' })
-    .nonempty({ message: 'Article body is required' }),
+    .min(50, { message: 'Body content must be at least 50 characters' })
+    .max(8000, { message: 'Body content must not exceed 8000 characters' }),
 
   article_handle: z
     .string()
-    .url({ message: 'Must be a valid URL' })
-    .regex(/^https:\/\/.*\.myshopify\.com\/blogs\/[a-zA-Z0-9-]+$/, {
-      message: 'Must be a valid Shopify product URL',
-    })
+    .min(10, { message: 'URL handle must be at least 10 characters' })
+    .max(300, { message: 'URL handle must not exceed 300 characters' })
     .optional(),
 
   article_image: z
     .string()
     .optional(),
 
-  article_metafield: z.array(z.object({
-    key: z.string(), 
-    namespace: z.string(), 
-    value: z.union([z.string(), z.number()]),
-    value_type: z.enum(['string', 'integer']), 
-    description: z.string().nullable(), 
-  })).optional(),
-
   article_published: z.boolean().optional(),
 
   article_published_at: z
     .string()
-    .datetime({ message: 'Must be a valid date-time string' })
     .optional(),
 
   article_summary_html: z
@@ -294,6 +298,18 @@ export const ArticleSchema: ZodType = z.object({
     .optional(),
 
   article_tags: z.string().optional(),
+
+  article_meta_description: z
+    .string()
+    .min(10, { message: 'Meta description must be at least 10 characters' })
+    .max(300, { message: 'Meta description must not exceed 300 characters' })
+    .optional(),
+
+  article_page_title: z
+    .string()
+    .min(10, { message: 'Page title must be at least 10 characters' })
+    .max(200, { message: 'Page title must not exceed 200 characters' })
+    .optional(),
 
   article_template_suffix: z.string().optional(),
 
@@ -316,7 +332,7 @@ export const ArticleSchema: ZodType = z.object({
 export const BaseConstraintSchema: ZodType<SEOProps> = z.object({
 
   title: z.string()
-    .min(30, { message: 'Title must be at least 30 characters' })
+    .min(10, { message: 'Title must be at least 10 characters' })
     .optional(),
 
   tags: z.string()
@@ -328,39 +344,29 @@ export const BaseConstraintSchema: ZodType<SEOProps> = z.object({
     .optional(),
 
   template_suffix: z.string()
-    .min(30, { message: 'Template Prefix must be at least 30 characters' })
+    .min(10, { message: 'Template Prefix must be at least 10 characters' })
     .optional(),
 
  });
 
 export const BlogConstraintSchema: ZodType<BLOG> = BaseConstraintSchema.extend({
-  commentable: z.enum(['moderate', 'no', 'yes'])
+  commentable: z.enum(['MODERATED', 'CLOSED', 'AUTO_PUBLISHED'])
     .optional(),
 
   feedburner: z.string().nullable().optional(),
 
   feedburner_location: z.string().nullable().optional(),
 
-  handle: z.string()
+  handle: z
+    .string()
     .min(3, { message: 'Handle must be at least 3 characters' })
     .optional(),
-
-  metafield: z.array(
-    z.object({
-      key: z.string(),
-      namespace: z.string(),
-      value: z.union([z.string(), z.number()]),
-      value_type: z.enum(['string', 'integer']),
-      description: z.string().nullable().optional(),
-    })
-  ).optional(),
 
   tags: z.string()
     .min(3, { message: 'Tags must be at least 3 characters' })
     .optional(),
 
   template_suffix: z.string()
-    .min(3, { message: 'Template suffix must be at least 3 characters' })
     .nullable()
     .optional(),
 
@@ -373,15 +379,6 @@ export const BlogConstraintSchema: ZodType<BLOG> = BaseConstraintSchema.extend({
     body_html: z.string().min(10, { message: 'Article body must be at least 10 characters' }),
     handle: z.string().min(3, { message: 'Article handle must be at least 3 characters' }),
     image: z.string().url().optional(),
-    metafield: z.array(
-      z.object({
-        key: z.string(),
-        namespace: z.string(),
-        value: z.union([z.string(), z.number()]),
-        value_type: z.enum(['string', 'integer']),
-        description: z.string().nullable().optional(),
-      })
-    ).optional(),
     summary_html: z.string().nullable().optional(),
     tags: z.string().min(3, { message: 'Article tags must be at least 3 characters' }).optional(),
     template_suffix: z.string().nullable().optional(),
@@ -420,50 +417,49 @@ export const LengthConstraintSchema: ZodType<SEOProps> = z.object({
     .min(100, { message: 'Summary content must be at least 100 characters' })
     .nonempty('Summary content is required'),
 
-  metaDescription: z.string()
-    .min(100, { message: 'Meta description must be at least 100 characters' })
+  meta_escription: z.string()
+    .min(10, { message: 'Meta description must be at least 10 characters' })
     .optional(),
   
+  page_title: z.string()
+    .min(10, { message: 'Page title must be at least 10 characters' })
+    .optional(),
+
   product_type: z.string()
     .min(10, { message: 'Category must be at least 10 characters' })
     .optional(),
   
   template_suffix: z.string()
-    .min(10, { message: 'Template suffix must be at least 10 characters' })
+    .min(5, { message: 'Template suffix must be at least 5 characters' })
+    .nullable()
     .optional(),
   
   blog_template_suffix: z.string()
-    .min(10, { message: 'Template suffix must be at least 10 characters' })
+    .min(5, { message: 'Template suffix must be at least 5 characters' })
+    .nullable()
     .optional(),
   
   article_template_suffix: z.string()
-    .min(10, { message: 'Template suffix must be at least 10 characters' })
-    .optional(),
-
-  pageTitle: z.string()
-    .min(10, { message: 'Page title must be at least 10 characters' })
+    .nullable()
     .optional(),
   
-  handle: z.string()
-   .url({ message: 'Must be a valid URL' })
-   .regex(/^https:\/\/.*\.myshopify\.com\/products\/[a-zA-Z0-9-]+$/, {
-     message: 'Must be a valid Shopify product URL'
-   })
-   .optional(),
+  handle: z
+    .string()
+    .min(10, { message: 'URL handle must be at least 10 characters' })
+    .max(300, { message: 'URL handle must not exceed 300 characters' })
+    .optional(),
 
-  blog_handle: z.string()
-   .url({ message: 'Must be a valid URL' })
-   .regex(/^https:\/\/.*\.myshopify\.com\/blogs\/[a-zA-Z0-9-]+$/, {
-     message: 'Must be a valid Shopify blog URL'
-   })
-   .optional(),
+  blog_handle: z
+    .string()
+    .min(10, { message: 'URL handle must be at least 10 characters' })
+    .max(300, { message: 'URL handle must not exceed 300 characters' })
+    .optional(),
 
-  article_handle: z.string()
-   .url({ message: 'Must be a valid URL' })
-   .regex(/^https:\/\/.*\.myshopify\.com\/blogs\/[a-zA-Z0-9-]+$/, {
-     message: 'Must be a valid Shopify article URL'
-   })
-   .optional(),
+  article_handle: z
+    .string()
+    .min(10, { message: 'URL handle must be at least 10 characters' })
+    .max(300, { message: 'URL handle must not exceed 300 characters' })
+    .optional(),
   
   tags: z.string()
     .min(10, { message: 'Tags must be at least 10 characters' })
@@ -477,14 +473,6 @@ export const LengthConstraintSchema: ZodType<SEOProps> = z.object({
     .min(10, { message: 'Tags must be at least 10 characters' })
     .optional(),
 
-  blog_metafield: z.string()
-    .min(100, { message: 'Metafield must be at least 100 characters' })
-    .optional(),
-
-  article_metafield: z.string()
-    .min(100, { message: 'Metafield must be at least 100 characters' })
-    .optional(),
-
   options: z.string()
     .min(100, { message: 'Product options must be at least 100 characters' })
     .optional(),
@@ -493,15 +481,72 @@ export const LengthConstraintSchema: ZodType<SEOProps> = z.object({
     .min(100, { message: 'Product variants must be at least 100 characters' })
     .optional(),
 
+  blog_meta_escription: z.string()
+    .min(10, { message: 'Meta description must be at least 10 characters' })
+    .optional(),
+  
+  blog_page_title: z.string()
+    .min(10, { message: 'Page title must be at least 10 characters' })
+    .optional(),
+
+  article_meta_escription: z.string()
+    .min(10, { message: 'Meta description must be at least 10 characters' })
+    .optional(),
+  
+  article_page_title: z.string()
+    .min(10, { message: 'Page title must be at least 10 characters' })
+    .optional(),
+
 });
 
-export function getSchema(category: string, excludeFields: string[] = []) {
-  const schema = {
-    BLOG: BlogSchema,
-    PRODUCT: ProductSchema,
-    ARTICLE: ArticleSchema
-  }[category];
-  if (!schema || excludeFields.length === 0) return schema;
+export const UpdateProductSchema: ZodType<ProductProps & ShopifyIdentifiers> = ProductSchema.extend({
+  product_id: z
+  .number()
+  .min(1000000000000, { message: 'Id must be 13 digits' })
+  .max(99999999999999, { message: 'Id must be 13 digits' }),
+});
+
+export const UpdateBlogSchema: ZodType = BlogSchema.extend({
+  blog_id: z
+  .number()
+  .min(100000000000, { message: 'Id must be 12 digits' })
+  .max(999999999999, { message: 'Id must be 12 digits' }),
+});
+
+export const UpdateArticleSchema: ZodType = ArticleSchema.extend({
+  article_id: z
+  .number()
+  .min(100000000000, { message: 'Id must be 12 digits' })
+  .max(999999999999, { message: 'Id must be 12 digits' }),
+  blog_id: z
+  .number()
+  .min(100000000000, { message: 'Id must be 12 digits' })
+  .max(999999999999, { message: 'Id must be 12 digits' }),
+});
+
+export type EventType = 'CREATE' | 'UPDATE' | 'PUBLISH';
+
+export function getSchema(
+  category: 'BLOG' | 'PRODUCT' | 'ARTICLE',
+  eventType: EventType = 'CREATE',
+  excludeFields: string[] = []
+) {
+  let schema;
+  switch (category) {
+    case 'BLOG':
+      schema = eventType === 'UPDATE' ? UpdateBlogSchema : BlogSchema;
+      excludeFields.push('article_body_html');
+      break;
+    case 'PRODUCT':
+      schema = eventType === 'UPDATE' ? UpdateProductSchema : ProductSchema;
+      break;
+    case 'ARTICLE':
+      schema = eventType === 'UPDATE' ? UpdateArticleSchema : ArticleSchema;
+      break;
+    default:
+      throw new Error(`Invalid category: ${category}`);
+  }
+  if (excludeFields.length === 0) return schema;
   const schemaObject = schema.shape;
   const filteredShape = Object.keys(schemaObject)
     .filter((key) => !excludeFields.includes(key))

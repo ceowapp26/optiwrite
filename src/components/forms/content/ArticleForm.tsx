@@ -36,8 +36,9 @@ import { Grid } from "@mui/material";
 import { useFormContext } from 'react-hook-form';
 import { type ContentUpdate } from '@/context/GeneralContextProvider';
 import { useAppDispatch, useAppSelector } from "@/hooks/useLocalStore";
-import { BLOG_FORM } from '@/constants/content';
+import { BLOG_FORM, UPDATE_ARTICLE_FORM } from '@/constants/content';
 import { CONTENT, CATEGORY, ContentCategory } from '@/types/content';
+import { getBlogContents } from '@/actions/content/server';
 import { useShopifySubmit } from '@/hooks/useShopifySubmit';
 import { ShopApiService } from '@/utils/api';
 import FormGenerator from '@/components/forms/form-generator';
@@ -123,6 +124,10 @@ const showPromiseToast = <T,>(
   });
 };
 
+const extractId = (gid) => {
+  return gid.split('/').pop();
+};
+
 const Editor = dynamic(() => import('@/components/editor'), {
   ssr: false, 
   loading: () => <GradientLoadingCircle size={60} thickness={5} />,
@@ -140,7 +145,9 @@ interface ContentFormProps extends BaseProps {
   content: CONTENT;
   onContentChange: (newContent: CONTENT) => void;
   onBodyContentUpdate: (newContent: CONTENT) => void;
+  onUpdateTitle: (newTitle: string) => void;
   isRealtimeEditing?: boolean;
+  isUpdate?: boolean;
   setIsRealtimeEditing?: React.Dispatch<React.SetStateAction<boolean>>;
   handleShopifyAI?: (shopName: string, userId: string, action: string, content: string) => Promise<any>;
 }
@@ -153,16 +160,36 @@ const ArticleForm: React.FC<ContentFormProps> = ({
   content,
   onContentChange,
   onBodyContentUpdate,
+  onUpdateTitle,
   isRealtimeEditing,
   setIsRealtimeEditing, 
   handleShopifyAI,
+  isUpdate = false
 }) => {
-const dispatch = useAppDispatch();
+  const {
+    register,
+    formState: { errors },
+    control,
+    trigger,
+    setValue,
+    watch
+  } = useFormContext();
+  const dispatch = useAppDispatch();
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [currentImageUrl, setCurrentImageUrl] = useState("");
   const [imageCommand, setImageCommand] = useState<"replace" | "add">("add");
   const [uploadType, setUploadType] = useState<"local" | "unsplash">("local");
   const [toastActive, setToastActive] = useState(false);
+  const [blogs, setBlogs] = useState<any[]>([]);
+  const [selectedBlog, setSelectedBlog] = useState<string | null>(null);
+  const [isBlogLoading, setIsBlogLoading] = useState<boolean>(false);
+  const [blogLoadingError, setBlogLoadingError] = useState<string | null>(null);
+  const [paginationLimit, setPaginationLimit] = useState(1);
+  const [currentLimit, setCurrentLimit] = useState(8);
+  const [totalBlogs, setTotalBlogs] = useState<number>(0);
+  const [loadingBlogProgress, setLoadingBlogProgress] = useState(0);
+  const [loadingMoreBlogs, setLoadingMoreBlogs] = useState(false);
+
   const imageLength = useMemo(() => {
     return (content?.output?.images?.length || 0);
   }, [content?.output?.images]);
@@ -175,14 +202,77 @@ const dispatch = useAppDispatch();
     return images.filter(Boolean);
   }, [content?.output?.images, content?.output?.image?.src]);
 
-  const {
-    register,
-    formState: { errors },
-    control,
-    trigger,
-    setValue,
-    watch
-  } = useFormContext();
+  const fetchBlogContents = useCallback(async (pagination: number, limit: number) => {
+    if (!shopName || !accessToken) return;
+    try {
+      setIsBlogLoading(true);
+      setBlogLoadingError(null);
+      setLoadingBlogProgress(25);
+      const result = await getBlogContents(shopName, accessToken, pagination, limit);
+      setLoadingBlogProgress(75);
+      if (result?.success && result?.data) {
+        const transformedBlogs = result?.data?.blogs?.map(blog => ({
+          label: blog.title,
+          value: extractId(blog.id).toString(),
+        }));
+        transformedBlogs.push({
+          label: content?.output?.blog_name,
+          value: content?.output?.blog_id,
+        });
+        setBlogs(prevBlogs => {
+          const existingIds = new Set(prevBlogs.map(blog => blog.value));
+          const newUniqueBlogs = transformedBlogs.filter(blog => !existingIds.has(blog.value));
+          return [...prevBlogs, ...newUniqueBlogs];
+        });
+        if (result?.data?.totalBlogs !== totalBlogs) {
+          setTotalBlogs(result?.data?.totalBlogs);
+        }
+        setLoadingBlogProgress(100);
+      }
+    } catch (err) {
+      setBlogLoadingError(err instanceof Error ? err.message : 'Failed to fetch blogs');
+    } finally {
+      setIsBlogLoading(false);
+    }
+  }, [shopName, accessToken]);
+
+  const loadMoreBlogs = useCallback(async () => {
+    if (loadingMoreBlogs) return;
+    const newPaginationLimit = paginationLimit + 1;
+    try {
+      setLoadingMoreBlogs(true);
+      setLoadingBlogProgress(25);
+      const result = await getBlogContents(shopName, accessToken, newPaginationLimit, currentLimit);
+      setLoadingBlogProgress(75);
+      if (result?.success && result?.data) {
+        const transformedBlogs = result?.data?.blogs?.map(blog => ({
+          label: blog.title,
+          value: extractId(blog.id).toString(),
+        }));
+        transformedBlogs.push({
+          label: content?.output?.blog_name,
+          value: content?.output?.blog_id,
+        });
+        setBlogs(prevBlogs => {
+          const existingIds = new Set(prevBlogs.map(blog => blog.value));
+          const newUniqueBlogs = transformedBlogs.filter(blog => !existingIds.has(blog.value));
+          return [...prevBlogs, ...newUniqueBlogs];
+        });
+        if (result?.data?.totalBlogs !== totalBlogs) {
+          setTotalBlogs(result?.data?.totalBlogs);
+        }
+        setTotalBlogs(result?.data?.totalBlogs);
+        setLoadingBlogProgress(100);
+      }
+      setPaginationLimit(newPaginationLimit);
+    } catch (error) {
+      console.error('Failed to load more content', error);
+    } finally {
+      setLoadingMoreBlogs(false);
+    }
+  }, [paginationLimit, currentLimit, accessToken, shopName, loadingMoreBlogs]);
+
+  const memoizedBlogs = useMemo(() => blogs, [blogs]);
 
   const handleCurrentImageChange = (index: number, url: string) => {
     setCurrentImageIndex(index);
@@ -202,60 +292,6 @@ const dispatch = useAppDispatch();
       return false;
     }
   };
-
-  /*const updateImageInStorage = async (fileUrl: string, newFile: File) => {
-    const isSupabaseImage = isSupabaseImageUrl(fileUrl);
-    if (!isSupabaseImage) return;  
-    try {
-      let filePath: string;
-      if (fileUrl.includes('/optiwrite-images/')) {
-        filePath = fileUrl.split('/optiwrite-images/')[1].toLowerCase();
-      } else if (fileUrl.includes('/object/public/')) {
-        filePath = fileUrl.split('/object/public/optiwrite-images/')[1].toLowerCase();
-      } else {
-        throw new Error("Invalid file path format");
-      }
-      filePath = filePath.replace(/^\/+|\/+$/g, '');
-      /*const { data: existingFile, error: listError } = await supabase.storage
-        .from("optiwrite-images")
-        .list('uploads', {
-          search: filePath
-        });
-
-      if (listError) {
-        throw listError;
-      }
-      if (!existingFile || existingFile.length === 0) {
-        throw new Error("Image not found in storage");
-      }
-      const { data, error } = await supabase.storage
-      .from(`optiwrite-images`)
-      .update(filePath, newFile, {
-        cacheControl: "3600",
-        upsert: true,
-      });
-
-      if (error) {
-        console.error("Supabase storage error details:", error);
-        throw error;
-      }
-      const { data: { publicUrl } } = supabase.storage
-        .from(`optiwrite-images`)
-        .getPublicUrl(filePath);
-      toast.success("Image updated successfully.");
-      return publicUrl;
-    } catch (error) {
-        console.error("Error updating image:", error);
-      if (error instanceof Error) {
-        if (error.message === "Invalid file path format") {
-          toast.error("Invalid file path format");
-        } else {
-         toast.error("Error updating the image. Please try again.");
-        }
-      }
-      throw error;
-    }
-  };*/
 
   const removeImageFromStorage = useCallback(
     async (fileUrl: string) => {
@@ -395,10 +431,6 @@ const dispatch = useAppDispatch();
     dispatch(removeIcon(icon));
   }, [dispatch]);
 
-  const handleUpdateTitle = useCallback((value: string) => {
-    dispatch(updateTitle(value));
-  }, [dispatch]);
-
   const generateContentHTML = (content: any): string => {
     try {
       if (!content) return '';
@@ -416,52 +448,129 @@ const dispatch = useAppDispatch();
   };
 
   const renderFormFields = useMemo(() => {
-     const filteredFields = BLOG_FORM.filter((field) => 
-        Object.keys(content?.output || {}).includes(field.name)
-      );
-      return (
-      <Box className="w-full py-10 px-6">
-        {filteredFields.map((field) => (
-          <FormGenerator
-            key={field}
-            defaultValue={
-              field === "input_data"
-                ? content?.input || ""
-                : field === "article_image"
-                ? content?.input?.urls[0] || ""
-                : content?.output?.[field] || ""
+    const selectedForm = isUpdate ? UPDATE_ARTICLE_FORM : BLOG_FORM;
+    const outputKeys = Object.keys(content?.output || {});
+    let filteredFields = selectedForm.filter((field) => 
+      outputKeys.includes(field.name)
+    );
+    
+    if (content?.input?.category === ContentCategory.ARTICLE && isUpdate) {
+      const articleBlogsField = {
+        id: '23',
+        inputType: 'select',
+        placeholder: 'Select Blog',
+        name: 'article_blogs',
+        label: 'Select Blog',
+        options: memoizedBlogs
+      };
+      filteredFields.push(articleBlogsField);
+    }
+    const groupedFields = filteredFields.reduce((acc, field) => {
+      if (field.name.startsWith('blog_')) {
+        acc.blogFields.push(field);
+      } else if (field.name.startsWith('article_')) {
+        acc.articleFields.push(field);
+      } else {
+        acc.otherFields.push(field);
+      }
+      return acc;
+    }, { blogFields: [], articleFields: [], otherFields: [] });
+
+    const renderField = (field) => (
+      <FormGenerator
+        key={field.name}
+        defaultValue={
+          (() => {
+            switch (field.name) {
+              case "article_id":
+                return content?.output?.article_id || "";
+              case "input_data":
+                return content?.input || "{}";
+              case "article_image":
+                return content?.input?.urls?.[0] || "";
+              case "article_blogs":
+                return content?.output?.blog_id || "";
+              default:
+                return content?.output?.[field.name] || "";
             }
-            {...field}
-            register={register}
-            errors={errors}
-            control={control}
-            setValue={setValue}
-            watch={watch}
-            trigger={trigger}
-            content={content}
-            setContent={onContentChange}
-            handleShopifyAI={handleShopifyAI}
-            shopName={shopName}
-            userId={userId}
-            aiEnabled
-          />
-        ))}
+          })()
+        }
+        {...field}
+        register={register}
+        errors={errors}
+        control={control}
+        setValue={setValue}
+        watch={watch}
+        trigger={trigger}
+        content={content}
+        setContent={onContentChange}
+        handleShopifyAI={handleShopifyAI}
+        shopName={shopName}
+        userId={userId}
+        isBlogLoading={isBlogLoading}
+        blogLoadingError={blogLoadingError}
+        blogOptions={memoizedBlogs}
+        totalBlogs={totalBlogs}
+        loadMoreBlogs={loadMoreBlogs}
+        loadingMoreBlogs={loadingMoreBlogs}
+        loadingBlogProgress={loadingBlogProgress}
+        aiEnabled
+      />
+    );
+
+    return (
+      <Box className="w-full py-10 px-6">
+        {groupedFields.blogFields.length > 0 && (
+          <Box className="mb-8">
+            <BlockStack gap="500">
+              <Text variant="headingMd">Blog Details</Text>
+              {groupedFields.blogFields.map(renderField)}
+            </BlockStack>
+          </Box>
+        )}
+        {groupedFields.articleFields.length > 0 && (
+          <Box className="mb-8">
+            <BlockStack gap="500">
+              <Text variant="headingMd">Article Details</Text>
+              {groupedFields.articleFields.map(renderField)}
+            </BlockStack>
+          </Box>
+        )}
       </Box>
     );
   }, [
-    content?.output, 
-    content?.input, 
-    register, 
-    errors, 
-    control, 
-    setValue, 
-    watch, 
-    trigger, 
-    onContentChange, 
-    handleShopifyAI, 
-    shopName, 
-    userId
+    content?.output,
+    content?.input,
+    register,
+    errors,
+    control,
+    setValue,
+    watch,
+    trigger,
+    onContentChange,
+    handleShopifyAI,
+    shopName,
+    userId,
+    blogs,
+    isUpdate
   ]);
+
+  useEffect(() => {
+    let mounted = true;
+    const initializeBlogContents = async () => {
+      if (content?.input?.category === ContentCategory.ARTICLE && isUpdate) {
+        try {
+          await fetchBlogContents(1, currentLimit);
+        } catch (error) {
+          console.error('Failed to initialize blog contents:', error);
+        }
+      }
+    };
+    initializeBlogContents();
+    return () => {
+      mounted = false;
+    };
+  }, [content?.input?.category, isUpdate, currentLimit, fetchBlogContents]);
 
   return (
     <Box paddingBlockEnd="300" background="bg-surface" borderRadius="300">
@@ -514,7 +623,7 @@ const dispatch = useAppDispatch();
             onSelectImageCommand={setImageCommand}
             onAddIcon={handleAddIcon}
             onRemoveIcon={handleRemoveIcon}
-            onUpdateTitle={handleUpdateTitle}
+            onUpdateTitle={onUpdateTitle}
             handleShopifyAI={handleShopifyAI}
           />
           <Editor
@@ -524,7 +633,7 @@ const dispatch = useAppDispatch();
             contentTitle={content?.output?.article_title}
             handleShopifyAI={handleShopifyAI}
           />
-          {renderFormFields()}
+          {renderFormFields}
         </React.Fragment>
       </Card>
     </Box>
@@ -532,3 +641,5 @@ const dispatch = useAppDispatch();
 };
 
 export default memo(ArticleForm);
+
+

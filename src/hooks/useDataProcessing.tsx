@@ -2,6 +2,8 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { API } from '@/constants/api';
 import { useUsageStore } from '@/hooks/useUsageStore';
 import { AppBridgeState, ClientApplication } from '@shopify/app-bridge';
+import { useAppDispatch, useAppSelector } from '@/hooks/useLocalStore';
+import { storeSession, selectSession } from "@/stores/features/authSlice";
 import { Service } from '@prisma/client';
 import axios from 'axios';
 
@@ -12,6 +14,7 @@ interface UseDataProcessingProps {
 
 export const useDataProcessing = ({ app, onError }: UseDataProcessingProps) => {
   const appRef = useRef(app);
+  const { email } = useAppSelector(selectSession);
   const [error, setError] = useState('');
   const { setShopDetails, checkCrawlLimit, updateCrawlUsage } = useUsageStore();
   
@@ -20,7 +23,7 @@ export const useDataProcessing = ({ app, onError }: UseDataProcessingProps) => {
       throw new Error('Missing credentials!'); 
     }
     try {
-      await setShopDetails(shopName, userId);
+      await setShopDetails(shopName, userId, email);
       const canProcess = await checkCrawlLimit(1, appRef.current);
       if (!canProcess) {
         throw new Error('Usage limit reached for this billing cycle');
@@ -38,7 +41,10 @@ export const useDataProcessing = ({ app, onError }: UseDataProcessingProps) => {
         headers: { 'Content-Type': 'application/json' }
       });
       const resData = response.data;
-      if (resData) await updateCrawlUsage(1, appRef.current);
+      if (resData) 
+        Promise.resolve().then(() => {
+          updateCrawlUsage(1, appRef.current)
+        });
       return resData;
     } catch (error: any) {
       const errorMessage = error?.response?.data?.error || 'Error fetching content';

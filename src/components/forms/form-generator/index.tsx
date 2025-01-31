@@ -1,15 +1,15 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { LightbulbIcon } from '@shopify/polaris-icons';
-import { CONTENT } from '@/types/content';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { LightbulbIcon, PageDownIcon } from '@shopify/polaris-icons';
+import { CONTENT, ContentCategory } from '@/types/content';
 import { LengthConstraintSchema } from '@/schemas/content.schema';
 import { type LucideIcon } from 'lucide-react';
 import { AIError } from '@/types/ai';
-import { processJsonData } from '@/utils/data';
+import { processJsonData, processHandle } from '@/utils/data';
 import { useAppSelector } from '@/hooks/useLocalStore';
 import { useContextStore } from "@/hooks/useLocalStore";
 import { type ProductUpdate } from '@/context/GeneralContextProvider';
 import { toast } from 'sonner'
-import { Box, Text, InlineStack, TextField, Tag, Tooltip, Select, Button, Checkbox, DatePicker, BlockStack } from '@shopify/polaris';
+import { Box, Text, InlineStack, TextField, Tag, Tooltip, Select, Button, Checkbox, DatePicker, BlockStack, ProgressBar } from '@shopify/polaris';
 import { FieldErrors, FieldValues, UseFormRegister, UseFormTrigger, Control, Controller, UseFormSetValue, UseFormWatch } from 'react-hook-form';
 
 const KeyboardEventWrapper: React.FC<{ children: React.ReactNode; onKeyDown: (event: React.KeyboardEvent) => void; isEdit: boolean; isSEOEdit: boolean; }> = ({ children, onKeyDown, isEdit, isSEOEdit }) => {
@@ -17,7 +17,7 @@ const KeyboardEventWrapper: React.FC<{ children: React.ReactNode; onKeyDown: (ev
     onKeyDown(event);
   };
   return (
-    <div className={(!isEdit || !isSEOEdit) ? "min-w-80" : "w-full"} onKeyDown={handleKeyDown}>
+    <div className="w-full" onKeyDown={handleKeyDown}>
       {children}
     </div>
   );
@@ -59,6 +59,13 @@ type Props = {
   setIsAiLoading?: React.Dispatch<React.SetStateAction<boolean>>;
   activeProduct?: string;
   products?: PRODUCT[];
+  totalBlogs?: number;
+  loadingMoreBlogs?: boolean;
+  loadMoreBlogs?: () => void;
+  blogOptions?: any[];
+  isBlogLoading?: boolean;
+  loadingBlogProgress?: number;
+  blogLoadingError?: string | null;
   setContents?: (value: PRODUCT[]) => void;
   setContent?: (value: ProductUpdate) => void;
   setEditProduct?: (value: ProductUpdate) => void;
@@ -107,11 +114,25 @@ const FormGenerator: React.FC<Props> = ({
   setEditProduct,
   onUpdateProduct,
   content,
+  blogOptions,
+  isBlogLoading,
+  loadingBlogProgress,
+  blogLoadingError,
+  totalBlogs,
+  loadMoreBlogs,
+  loadingMoreBlogs
 }) => {
   const [chipItems, setChipItems] = useState<string[]>([]);
   const [inputValue, setInputValue] = useState<string>('');
   const [loadingFields, setLoadingFields] = useState<Record<string, boolean>>({});
   const [isEditting, setIsEditting] = useState<Record<string, boolean>>({});
+  const [{ month, year }, setDate] = useState({ 
+    month: new Date().getMonth(), 
+    year: new Date().getFullYear() 
+  });
+  const handleMonthChange = useCallback((month: number, year: number) => {
+    setDate({ month, year });
+  }, []);
   const aiErrorState = useMemo(() => {
     if (!aiErrors || aiErrors.length === 0) return null;
     return aiErrors.find(error => error.name === name);
@@ -119,24 +140,60 @@ const FormGenerator: React.FC<Props> = ({
 
   useEffect(() => {
     try {
-      if (name === 'tags' || name === 'blog_tags' || name === 'article_tags' || name === 'images') {
-        if (typeof defaultValue === 'string' && defaultValue.trim() !== '') {
-          const trimmedItems = defaultValue.split(',').map(item => item.trim());
-          setChipItems(trimmedItems);
-          setValue?.(name, defaultValue.trim());
-        } else if (Array.isArray(defaultValue)) {
-          setChipItems(defaultValue);
-          setValue?.(name, defaultValue);
+      if (name === 'tags' || name === 'blog_tags' || name === 'article_tags') {
+        let processedItems: string[] = [];
+        let processedValue = '';
+        if (defaultValue) {
+          if (typeof defaultValue === 'string') {
+            const trimmedValue = defaultValue.trim();
+            if (trimmedValue) {
+              processedItems = trimmedValue.split(',')
+                .map(item => item.trim())
+                .filter(item => item !== '');
+              processedValue = processedItems.join(',');
+            }
+          } else if (Array.isArray(defaultValue)) {
+            processedItems = defaultValue
+              .filter(item => item && typeof item === 'string')
+              .map(item => item.trim())
+              .filter(item => item !== '');
+            processedValue = processedItems.join(',');
+          }
         }
-      } else if (name === 'status' && (!defaultValue || defaultValue.trim() === '')) {
-        setValue?.(name, options?.[0]?.value);
-      } else if (name === 'user_id' && userId) {
-        setValue?.(name, userId.toString());
-      } else if (['options', 'variants', 'blog_metafield', 'article_metafield', 'input_data'].includes(name)) {
-        const processedValue = processJsonData(defaultValue);
+        setChipItems(processedItems);
+        setValue(name, processedValue);
+      } else if (name === 'images' || name === 'article_images') {
+        let processedImages: string[] = [];
+        if (defaultValue) {
+          if (typeof defaultValue === 'string') {
+            const trimmedValue = defaultValue.trim();
+            if (trimmedValue) {
+              processedImages = trimmedValue.split(',')
+                .map(item => item.trim())
+                .filter(item => item !== '');
+            }
+          } else if (Array.isArray(defaultValue)) {
+            processedImages = defaultValue
+              .filter(item => item && typeof item === 'string')
+              .map(item => item.trim())
+              .filter(item => item !== '');
+          }
+        }
+        setChipItems(processedImages);
+        setValue(name, processedImages);
+      } else if (['options', 'variants'].includes(name)) {
+        const processedValue = processJsonData(defaultValue, 'array');
         setValue?.(name, processedValue);
+      } else if (['article_published'].includes(name)) {
+          setValue(name, Boolean(defaultValue));
+      } else if (['input_data'].includes(name)) {
+        const processedValue = processJsonData(defaultValue, 'object');
+        setValue?.(name, processedValue);
+      } else if (type === 'number') {
+        const processedValue = !defaultValue || defaultValue === '' ? '0.01' : Number(defaultValue);
+        setValue(name, processedValue);
       } else {
-        setValue?.(name, defaultValue);
+        setValue(name, defaultValue || '');
       }
       if (trigger) {
         Promise.resolve(trigger(name)).catch(error => {
@@ -144,9 +201,36 @@ const FormGenerator: React.FC<Props> = ({
         });
       }
     } catch (error) {
-      console.error('Error in form field initialization:', error);
+      if (name === 'tags' || name === 'blog_tags' || name === 'article_tags') {
+        setChipItems([]);
+        setValue(name, '');
+      } else if (name === 'images' || name === 'article_images') {
+        setChipItems([]);
+        setValue(name, []);
+      } else {
+        setValue(name, type === 'number' ? '0.01' : '');
+      }
+      console.error(`Error processing ${name}:`, error);
     }
-  }, [name, defaultValue, setValue, trigger, userId, options]);
+  }, [name, setValue, defaultValue, type, trigger]);
+
+  const getHandlePrefix = useCallback(
+    (category, shopName) => {
+      switch (category) {
+        case ContentCategory.PRODUCT:
+          return `https://${shopName}.myshopify.com/products/`;
+        case ContentCategory.BLOG:
+          return `https://${shopName}.myshopify.com/blogs/`;
+        case ContentCategory.ARTICLE:
+          const selectedBlog = watch('blog_id');
+          const blogHandle = blogOptions?.find(option => option.value === selectedBlog)?.label || content?.output?.blog_name;
+          return `https://${shopName}.myshopify.com/blogs/${blogHandle?.toLowerCase()}/`;
+        default:
+          return '';
+      }
+    },
+    [watch, blogOptions] 
+  );
 
   const handleTextFieldChange = (value: string) => {
     setInputValue(value);
@@ -159,8 +243,10 @@ const FormGenerator: React.FC<Props> = ({
       setChipItems(newItems);
       if (name === 'tags' || name === 'blog_tags' || name === 'article_tags') {
         setValue(name, newItems.join(', '));
+        setContent({ [name]: newItems.join(', ') });
       } else {
         setValue(name, newItems);
+        setContent({ [name]: newItems });
       }
       setInputValue('');
     }
@@ -189,8 +275,10 @@ const FormGenerator: React.FC<Props> = ({
     setChipItems(newItems);
     if (name === 'tags' || name === 'blog_tags' || name === 'article_tags') {
       setValue(name, newItems.join(', '));
+      setContent({ [name]: newItems.join(', ') });
     } else {
       setValue(name, newItems);
+      setContent({ [name]: newItems });
     }
   };
 
@@ -253,15 +341,15 @@ const FormGenerator: React.FC<Props> = ({
     switch (inputType) {
      case 'input':
       return (
-        <div className="relative py-1 w-full">
-          {['tags', 'images', 'blog_tags', 'article_tags', 'article_images'].includes(name) ? (
-            <Box>
-              <div className="relative">
-                <InlineStack blockAlign="center" align="space-between">
+        <div className="relative py-1 flex flex-1">
+          {['tags', 'blog_tags', 'article_tags'].includes(name) ? (
+            <Box width="100%" paddingBlock="300">
+              <div className="w-full">
+                <InlineStack blockAlign="start" align="start" gap="300" wrap={false}>
                   <Controller
                     name={name}
                     control={control}
-                    defaultValue=""
+                    defaultValue={['tags', 'blog_tags', 'article_tags'].includes(name) ? chipItems.join(', ') : ['images', 'article_images'].includes(name) ? chipItems : ''}
                     render={({ field }) => (
                       <KeyboardEventWrapper isSEOEdit={isSEOEdit} isEdit={isEdit} onKeyDown={handleKeyDown}>
                         <TextField
@@ -271,7 +359,7 @@ const FormGenerator: React.FC<Props> = ({
                             const processed = handleTagInput(newValue);
                             setIsEditting(prev => ({ ...prev, [name]: true }));
                             handleTextFieldChange(processed);
-                            if (name === 'tags') {
+                            if (name === 'tags' || name === 'blog_tags' || name === 'article_tags') {
                               field.onChange(chipItems.join(', '));
                             }
                           }}
@@ -281,6 +369,11 @@ const FormGenerator: React.FC<Props> = ({
                             }
                             field.onBlur();
                           }}
+                          error={
+                           (name === 'images' || name === 'article_images')&& Array.isArray(errors[name])
+                              ? errors[name].map((error) => error.message).join(', ')
+                              : errors[name]?.message || null
+                          }
                           placeholder={placeholder}
                         />
                       </KeyboardEventWrapper>
@@ -305,23 +398,22 @@ const FormGenerator: React.FC<Props> = ({
                 {tagMarkup}
               </InlineStack>
             </Box>
-          ) : isEdit && (['tags', 'images', 'blog_tags', 'article_tags', 'article_images'].includes(name)) ? (
-            <Box>
-              <div className="relative py-1">
+          ) : isEdit && (['tags', 'blog_tags', 'article_tags'].includes(name)) ? (
+            <Box width="100%" paddingBlock="300">
+              <div className="w-full">
                 <Controller
                   name={name}
                   control={control}
-                  defaultValue=""
+                  defaultValue={['tags', 'blog_tags', 'article_tags'].includes(name) ? chipItems.join(', ') : ['images', 'article_images'].includes(name) ? chipItems : ''}
                   render={({ field }) => (
                     <KeyboardEventWrapper isSEOEdit={isSEOEdit} isEdit={isEdit} onKeyDown={handleKeyDown}>
                       <TextField
                         label={label}
-                        value={inputValue || ''}
                         onChange={(newValue) => {
                           const processed = handleTagInput(newValue);
                           setIsEditting(prev => ({ ...prev, [name]: true }));
                           handleTextFieldChange(processed);
-                          if (name === 'tags') {
+                          if (name === 'tags' || name === 'blog_tags' || name === 'article_tags') {
                             field.onChange(chipItems.join(', '));
                           }
                         }}
@@ -331,6 +423,11 @@ const FormGenerator: React.FC<Props> = ({
                           }
                           field.onBlur();
                         }}
+                        error={
+                         (name === 'images' || name === 'article_images')&& Array.isArray(errors[name])
+                            ? errors[name].map((error) => error.message).join(', ')
+                            : errors[name]?.message || null
+                        }
                         placeholder={placeholder}
                       />
                     </KeyboardEventWrapper>
@@ -342,117 +439,160 @@ const FormGenerator: React.FC<Props> = ({
                 {tagMarkup}
               </InlineStack>
             </Box>
-          ) : aiEnabled && 
+            ) : aiEnabled && 
               ([
                 'title',
-                'blog_feedburner',
-                'blog_feedburner_location',
                 'handle',
                 'product_type',
                 'template_suffix',
-                'metafields',
                 'author',
                 'article_summary_html',
                 'vendor',
-                'options',
-                'variants',
-                'seo',
+                'price',
                 'page_title',
                 'meta_description',
+                'blog_feedburner',
+                'blog_feedburner_location',
+                'blog_meta_description',
+                'blog_page_title',
+                'article_meta_description',
+                'article_page_title',
                 'input_data',
                 'blog_handle',
                 'blog_title',
                 'blog_tags',
                 'blog_template_suffix',
-                'blog_metafield',
                 'article_title',
                 'article_handle',
-                'article_metafield',
+                'article_image',
                 'article_tags',
                 'article_template_suffix',
                 'user_id',
+                'article_id',
+                'blog_id',
+                'product_id',
+                'body_html',
+                'article_body_html',
+                'blog_name'
               ].includes(name)) ? (
-            <div className="relative w-full">
+            <div className="w-full">
               <InlineStack blockAlign="start" align="start" gap="300" wrap={false}>
-                <Controller
-                  name={name}
-                  control={control}
-                  defaultValue={(() => {
-                    let processedValue = defaultValue;
-                    if (type === 'number') {
-                      return defaultValue === '' ? '' : Number(defaultValue);
-                    } 
-                    return processedValue;
-                  })()}
-                  rules={{
-                    required: true,
-                    ...(type === 'number' ? {
-                      valueAsNumber: true,
-                      validate: value => !isNaN(value) || 'Must be a number'
-                    } : {})
-                  }}
-                  render={({ field }) => (
-                    !['images', 'image', 'input_data', 'user_id'].includes(name) ? (
-                      <div className="w-full max-w-[75%]">
-                        <TextField
-                          label={label}
-                          value={(() => {
-                            if (['options', 'variants', 'blog_metafield', 'article_metafield', 'input_data'].includes(name)) {
-                              return typeof field.value === 'object' || Array.isArray(field.value) 
-                                ? JSON.stringify(field.value, null, 2) 
-                                : field.value;
-                            }
-                            return field.value || '';
-                          })()}
-                          onChange={(newValue) => {
-                            let processedValue = newValue;
-                            if (type === 'number') {
-                              processedValue = newValue === '' ? '' : Number(newValue);
-                            } else if (['options', 'variants', 'blog_metafield', 'article_metafield', 'input_data'].includes(name)) {
-                              try {
-                                processedValue = processJsonData(newValue);
-                              } catch (e) {
-                                processedValue = newValue;
+                {([
+                  'article_body_html',
+                  'article_image',
+                  'article_images',
+                  'images',
+                  'image',
+                  'input_data',
+                  'user_id',
+                  'article_image',
+                  'article_images',
+                  'body_html',
+                  'article_id',
+                  'product_id',
+                  'blog_name'
+                ].includes(name)) ? null : (
+                  <>
+                    <Controller
+                      name={name}
+                      control={control}
+                      defaultValue={(() => {
+                        let processedValue = defaultValue;
+                        if (type === 'number') {
+                          return defaultValue === '' ? '' : Number(defaultValue);
+                        } 
+                        return processedValue;
+                      })()}
+                      rules={{
+                        required: true,
+                        ...(type === 'number' ? {
+                          valueAsNumber: true,
+                          validate: value => !isNaN(value) || 'Must be a number'
+                        } : {})
+                      }}
+                      render={({ field }) => (
+                        <div className="w-full">
+                          <TextField
+                            label={label}
+                            value={(() => {
+                              if (['options', 'variants', 'input_data'].includes(name)) {
+                                return typeof field.value === 'object' || Array.isArray(field.value) 
+                                  ? JSON.stringify(field.value, null, 2) 
+                                  : field.value;
                               }
+                              return field.value || '';
+                            })()}
+                            onChange={(newValue) => {
+                              let processedValue = newValue;
+                              if (type === 'number') {
+                                processedValue = newValue === '' ? '' : Number(newValue);
+                              } else if (['options', 'variants'].includes(name)) {
+                                try {
+                                  processedValue = processJsonData(newValue, 'array');
+                                } catch (e) {
+                                  processedValue = newValue;
+                                }
+                              } else if (['input_data'].includes(name)) {
+                                try {
+                                  processedValue = processJsonData(newValue, 'object');
+                                } catch (e) {
+                                  processedValue = newValue;
+                                }
+                              }                        
+                              setContent({ [name]: processedValue });
+                              setIsEditting(prev => ({ ...prev, [name]: true }));
+                              field.onChange(processedValue);
+                            }}
+                            prefix={
+                              ([
+                                'handle',
+                                'blog_handle',
+                                'article_handle'
+                              ].includes(name)) ? getHandlePrefix(content?.input?.category, shopName) : prefix
                             }
-                            setContent({ [name]: newValue });
-                            setIsEditting(prev => ({ ...prev, [name]: true }));
-                            field.onChange(processedValue);
-                          }}
-                          prefix={prefix}
-                          suffix={suffix}
-                          onBlur={field.onBlur}
-                          type={type}
-                          id={name}
-                          disabled={['input_data', 'user_id'].includes(name) ? true : false}
-                          autoComplete="off"
-                          error={errors[name] ? errors[name]?.message : null}
-                          placeholder={placeholder}
-                          {...(multiline && { multiline: parseInt(multiline) })}
-                          {...(showCharacterCount && { showCharacterCount: true })}
-                          {...(maxLength && { maxLength: parseInt(maxLength) })}
-                          {...(autoSize && { autoSize: true })}
-                        />
+                            suffix={suffix}
+                            onBlur={field.onBlur}
+                            type={type}
+                            id={name}
+                            disabled={['input_data', 'user_id'].includes(name) ? true : false}
+                            autoComplete="off"
+                            error={errors[name] ? errors[name]?.message : null}
+                            placeholder={placeholder}
+                            readOnly={
+                              ([
+                                'input_data',
+                                'user_id',
+                                'article_id',
+                                'blog_id',
+                                'product_id',
+                              ].includes(name)) ? true : false
+                            }
+                            {...(multiline && { multiline: parseInt(multiline) })}
+                            {...(showCharacterCount && { showCharacterCount: true })}
+                            {...(maxLength && { maxLength: parseInt(maxLength) })}
+                            {...(autoSize && { autoSize: true })}
+                          />
+                        </div>
+                      )}
+                    />
+                    {!["images", "input_data", "user_id", "body_html", "article_body_html", "article_image", "price"].includes(name) && (
+                      <div className="mt-7">
+                        <Tooltip content={`Generate AI content for ${label}`}>
+                          <Button
+                            disabled={isLoading}
+                            icon={LightbulbIcon}
+                            onClick={handleAIGenerate}
+                            loading={isLoading}
+                          />
+                        </Tooltip>
                       </div>
-                    ) : null
-                  )}
-                />
-                {!["images", "input_data", "user_id", "article_author"].includes(name) && (
-                  <div className="mt-7">
-                    <Tooltip content={`Generate AI content for ${label}`}>
-                      <Button
-                        disabled={isLoading}
-                        icon={LightbulbIcon}
-                        onClick={handleAIGenerate}
-                        loading={isLoading}
-                      />
-                    </Tooltip>
-                  </div>
+                    )}
+                  </>
                 )}
               </InlineStack>
             </div>
           ) : !aiEnabled && isSEOEdit ? (
-            <Box paddingBlock='500'>
+            <Box width="100%" paddingBlock='300'>
               <Controller
                 name={name}
                 control={control}
@@ -476,7 +616,7 @@ const FormGenerator: React.FC<Props> = ({
                 }}
                 render={({ field }) => (
                   name !== "images" ? (
-                    <div className={!isEdit ? "min-w-80" : "w-full"}>
+                    <div className="w-full">
                       <TextField
                         label={label}
                         value={(() => {
@@ -521,7 +661,7 @@ const FormGenerator: React.FC<Props> = ({
               />
             </Box>
           ) : (
-            <Box paddingBlock='500'>
+            <Box width="100%" paddingBlock='300'>
               <Controller
                 name={name}
                 control={control}
@@ -536,7 +676,7 @@ const FormGenerator: React.FC<Props> = ({
                 }}
                 render={({ field }) => (
                   !['images', 'input_data'].includes(name) ? (
-                    <div className={!isEdit ? "min-w-80" : "w-full"}>
+                    <div className="w-full">
                       <TextField
                         label={label}
                         value={field.value || ''}
@@ -577,47 +717,81 @@ const FormGenerator: React.FC<Props> = ({
           )*/}
         </div>
       );
-
-      case 'select':
-        return (
-          <Box maxWidth="200px" paddingBlock="500">
-            <Controller
-              name={name}
-              control={control}
-              defaultValue={name === 'status' ? (defaultValue || options?.[0]?.value) : defaultValue}
-              rules={{ required: true }}
-              render={({ field }) => {
-                const currentValue = name === 'status' && !field.value ? 
-                  options?.[0]?.value : field.value;
-                return (
-                  <Select
-                    label={label}
-                    options={options || []}
-                    value={currentValue}
-                    onChange={(newValue) => {
-                      const selectedValue = typeof newValue === 'object' ? 
-                        newValue?.value : newValue;
-                      if (name === 'status' && !selectedValue) {
-                        field.onChange(options?.[0]?.value);
-                      } else if (selectedValue) {
-                        field.onChange(selectedValue);
-                      }
-                    }}
-                    onBlur={field.onBlur}
-                    ref={field.ref}
-                    error={errors[name] ? errors[name]?.message?.toString() : undefined}
-                    placeholder={placeholder}
+    case 'select':
+      return (
+        <div className="w-full">
+          <InlineStack blockAlign="start" align="space-between" gap="300" wrap={false}>
+            <div className="w-4/5"> 
+              <Controller
+                name={name}
+                control={control}
+                defaultValue={name === 'status' ? (defaultValue || options?.[0]?.value) : defaultValue}
+                rules={{ required: true }}
+                render={({ field }) => {
+                  const currentValue = name === 'status' && !field.value ? 
+                    options?.[0]?.value : field.value || defaultValue;
+                  return (
+                    <Select
+                      label={label}
+                      options={options || []}
+                      value={currentValue}
+                      onChange={(newValue) => {
+                        const selectedValue = typeof newValue === 'object' ? 
+                          newValue?.value : newValue;
+                        if (name === 'status' && !selectedValue) {
+                          field.onChange(options?.[0]?.value);
+                        } else if (name === 'article_blogs' && !selectedValue) {
+                          field.onChange(options?.find(option => option.value === watch('blog_id')).value.toString());
+                        } else if (selectedValue) {
+                          field.onChange(selectedValue);
+                          if (name === 'article_blogs') {
+                            setValue('blog_id', selectedValue);
+                          }
+                        }
+                      }}
+                      disabled={loadingMoreBlogs || isBlogLoading}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                      error={errors[name] ? errors[name]?.message?.toString() : undefined}
+                      placeholder={isBlogLoading ? 'Loading...' : 'Choose blog'}
+                    />
+                  );
+                }}
+              />
+            </div>
+            {["article_blogs"].includes(name) && blogOptions.length < totalBlogs && (
+              <div className="mt-7 w-1/5 flex justify-end">
+                <Tooltip content={`Load More Blog Options`}>
+                  <Button
+                    disabled={loadingMoreBlogs || isBlogLoading}
+                    icon={PageDownIcon}
+                    onClick={loadMoreBlogs}
+                    loading={loadingMoreBlogs}
                   />
-                );
-              }}
-            />
-            {errors[name] && (
-              <Box paddingBlockStart="200">
-                <Text color="critical">{errors[name]?.message}</Text>
-              </Box>
+                </Tooltip>
+              </div>
             )}
-          </Box>
-        );
+          </InlineStack>
+          {(isBlogLoading || loadingMoreBlogs) && (
+            <div className="mt-3">
+              <ProgressBar
+                progress={loadingBlogProgress}
+                size="small"
+              />
+              <Text as="p" variant="bodySm" alignment="start" tone="subdued">
+                {isBlogLoading ? 'Loading blogs...' : 'Loading more blogs...'}
+              </Text>
+            </div>
+          )}
+          {blogLoadingError && (
+            <div className="mt-2">
+              <Text as="p" variant="bodySm" tone="critical">
+                {blogLoadingError}
+              </Text>
+            </div>
+          )}
+        </div>
+      );
 
       case 'checkbox':
         return (
@@ -626,15 +800,17 @@ const FormGenerator: React.FC<Props> = ({
               <Controller
                 name={name}
                 control={control}
-                defaultValue={false}
+                defaultValue={true}
                 render={({ field }) => (
                   <Checkbox
                     label={label}
-                    checked={field.value}
+                    checked={Boolean(field.value)}
                     onChange={(newChecked) => {
-                      field.onChange(newChecked);
-                      if (!newChecked) {
-                        setValue('article_published_at', false);
+                      const boolValue = Boolean(newChecked);
+                      field.onChange(boolValue);
+                      setValue(name, boolValue);
+                       if (!boolValue && setValue) {
+                        setValue('article_published_at', '');
                       }
                     }}
                     onBlur={field.onBlur}
@@ -647,58 +823,53 @@ const FormGenerator: React.FC<Props> = ({
 
       case 'date':
         return (
-          <div className="relative py-1">
-            <Box minHeight="200px">
-              <Controller
-                name={name}
-                control={control}
-                rules={{
-                  validate: (value) => {
-                    const isArticlePublished = watch('article_published');
-                    if (isArticlePublished) {
-                      if (!value) {
-                        return 'Publication date is required';
-                      }
-                      const selectedDate = new Date(value);
-                      const now = new Date();
-                      return selectedDate >= now || 'Date must be today or in the future';
-                    }
-                    return true;
-                  }
-                }}
-                render={({ field }) => {
+          <div className="relative w-full">
+            <Controller
+              name={name}
+              control={control}
+              rules={{
+                validate: (value) => {
                   const isArticlePublished = watch('article_published');
-                  if (!isArticlePublished) {
-                    return null;
+                  if (isArticlePublished) {
+                    if (!value) {
+                      return 'Publication date is required';
+                    }
+                    const selectedDate = new Date(value);
+                    const now = new Date();
+                    return selectedDate >= now || 'Date must be today or in the future';
                   }
-                  return (
-                    <BlockStack gap="200" align="start" inlineBlock="center">
-                      <Box >
-                        <Text>Published At</Text>
-                      </Box>
+                  return true;
+                }
+              }}
+              render={({ field }) => {
+                const isArticlePublished = watch('article_published');
+                if (!isArticlePublished) {
+                  return null;
+                }
+                return (
+                  <Box minHeight="200px">
+                    <BlockStack gap="400" align="start" inlineBlock="center">
+                      <Text>Published At</Text>
                       <DatePicker
                         label={label}
                         value={field.value}
+                        onMonthChange={handleMonthChange}
                         onChange={(date) => {
                           field.onChange(date.start.toISOString());
                         }}
-                        month={new Date().getMonth()}
-                        year={new Date().getFullYear() + 1}
+                        selected={new Date(field.value)}
+                        month={month}
+                        year={year}
                         onBlur={field.onBlur}
                         error={errors[name]?.message}
                         disableDatesAfter={undefined} 
                         disableDatesBefore={new Date()} 
                       />
                     </BlockStack>
-                  );
-                }}
-              />
-              {errors[name] && (
-                <Box paddingBlockStart="200">
-                  <Text color="critical">{errors[name]?.message}</Text>
-                </Box>
-              )}
-            </Box>
+                  </Box>
+                );
+              }}
+            />
           </div>
         );
 
@@ -715,4 +886,6 @@ const FormGenerator: React.FC<Props> = ({
 };
 
 export default FormGenerator;
+
+
 

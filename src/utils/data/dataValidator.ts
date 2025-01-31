@@ -56,14 +56,20 @@ export interface LengthValidationError {
   content: string;
 }
 interface ProductStatus {
-  value: 'active' | 'archived' | 'draft';
+  value: 'ACTIVE' | 'ARCHIVED' | 'DRAFT';
   label: 'Active' | 'Archived' | 'Draft';
 }
 
 const STATUS_OPTIONS = [
-  { label: 'Active', value: 'active' },
-  { label: 'Archived', value: 'archived' },
-  { label: 'Draft', value: 'draft' }
+  { label: 'Active', value: 'ACTIVE' },
+  { label: 'Archived', value: 'ARCHIVED' },
+  { label: 'Draft', value: 'DRAFT' }
+] as const;
+
+const COMMENT_POLICY = [
+  { label: 'Moderate', value: 'MODERATED' },
+  { label: 'No', value: 'CLOSED' },
+  { label: 'Yes', value: 'AUTO_PUBLISHED' }
 ] as const;
 
 const FIELD_LENGTH_CONSTRAINTS: Record<string, FieldLengthConstraints> = {
@@ -71,17 +77,21 @@ const FIELD_LENGTH_CONSTRAINTS: Record<string, FieldLengthConstraints> = {
   product_type: { min: 10, max: 200, type: 'characters' },
   vendor: { min: 10, max: 200, type: 'characters' },
   template_suffix: { min: 10, max: 200, type: 'characters' },
-  body_html: { min: 200, max: 4000, type: 'category' },
-  blog_title: { min: 10, max: 200, type: 'category' },
-  blog_feedburner: { min: 10, max: 200, type: 'category' },
-  blog_feedburner_location: { min: 10, max: 200, type: 'category' },
+  body_html: { min: 200, max: 4000, type: 'characters' },
+  blog_title: { min: 10, max: 200, type: 'characters' },
+  blog_feedburner: { min: 10, max: 200, type: 'characters' },
+  blog_page_title: { min: 10, max: 200, type: 'characters' },
+  blog_meta_description: { min: 10, max: 200, type: 'characters' },
+  blog_feedburner_location: { min: 10, max: 200, type: 'characters' },
   blog_template_suffix: { min: 10, max: 200, type: 'characters' },
-  article_title: { min: 10, max: 200, type: 'category' },
-  article_author: { min: 10, max: 200, type: 'category' },
-  article_body_html: { min: 200, max: 4000, type: 'category' },
-  article_template_suffix: { min: 10, max: 200, type: 'category' },
-  metaDescription: { min: 100, max: 500, type: 'characters' },
-  pageTitle: { min: 10, max: 200, type: 'characters' }
+  article_title: { min: 10, max: 200, type: 'characters' },
+  article_author: { min: 10, max: 200, type: 'characters' },
+  article_body_html: { min: 200, max: 4000, type: 'characters' },
+  article_template_suffix: { min: 10, max: 200, type: 'characters' },
+  meta_description: { min: 100, max: 500, type: 'characters' },
+  page_title: { min: 10, max: 200, type: 'characters' },
+  article_page_title: { min: 10, max: 200, type: 'characters' },
+  article_meta_description: { min: 10, max: 200, type: 'characters' },
 };
 
 export interface LengthValidationError {
@@ -97,11 +107,9 @@ export function validateFieldLength(
 ): { isValid: boolean; error?: LengthValidationError } {
   const constraints = FIELD_LENGTH_CONSTRAINTS[fieldName];
   if (!constraints || !value) return { isValid: true };
-  
   const length = constraints.type === 'words' 
     ? value.trim().split(/\s+/).length 
     : value.length;
-
   if ((constraints.min && length < constraints.min) || 
       (constraints.max && length > constraints.max)) {
     return {
@@ -183,8 +191,8 @@ export const isValidArticleUrl = (url: string): boolean => {
   if (!url.includes('myshopify.com/')) return /^[a-z0-9-]+$/.test(url);
   try {
     const parsedUrl = new URL(url);
-    return parsedUrl.pathname.includes('/articles/') &&
-           /^[a-z0-9-]+$/.test(parsedUrl.pathname.split('/articles/')[1]);
+    return parsedUrl.pathname.includes('/blogs/') &&
+           /^[a-z0-9-]+$/.test(parsedUrl.pathname.split('/blogs/')[1]);
   } catch {
     return false;
   }
@@ -203,7 +211,7 @@ function stringValidator(value: any): { isValid: boolean; error?: string } {
 }
 
 function nonEmptyStringValidator(value: any): { isValid: boolean; error?: string } {
-  return (typeof value === 'date' && value.trim().length > 0)
+  return (typeof value === 'string' && value.trim().length > 0)
     ? { isValid: true }
     : { isValid: false, error: 'cannot be empty' };
 }
@@ -216,6 +224,20 @@ function validateDate(date: string): { isValid: boolean; error?: string } {
   const dateObj = new Date(date);
   if (dateObj.toString() === 'Invalid Date') {
     return { isValid: false, error: 'Invalid date' };
+  }
+  return { isValid: true };
+}
+
+function validateBlogCommentPolicy(value: any): { isValid: boolean; error?: string } {
+  if (!value || typeof value !== 'string') {
+    return { isValid: false, error: 'Comment policy must be a string' };
+  }
+  const validPolicies = COMMENT_POLICY.map(option => option.value);
+  if (!validPolicies.includes(value)) {
+    return { 
+      isValid: false, 
+      error: `Policy must be one of: ${validPolicies.join(', ')}` 
+    };
   }
   return { isValid: true };
 }
@@ -293,6 +315,28 @@ function validateObjectMetafield(metafield: any): { isValid: boolean; error?: st
   return { isValid: true };
 }
 
+function validateMetafieldArray(metafields: any[]): { isValid: boolean; error?: string } {
+  if (!Array.isArray(metafields)) {
+    return { isValid: false, error: 'Input must be an array of metafields' };
+  }
+
+  if (metafields.length === 0) {
+    return { isValid: false, error: 'Metafields array cannot be empty' };
+  }
+
+  for (let i = 0; i < metafields.length; i++) {
+    const validation = validateObjectMetafield(metafields[i]);
+    if (!validation.isValid) {
+      return { 
+        isValid: false, 
+        error: `Invalid metafield at index ${i}: ${validation.error}` 
+      };
+    }
+  }
+
+  return { isValid: true };
+}
+
 function isValidDate(date: any): date is Date {
   return date instanceof Date && !isNaN(date.getTime());
 }
@@ -325,16 +369,20 @@ const FIELD_VALIDATORS = {
   body_html: stringValidator,
   article_body_html: stringValidator,
   article_summary_html: stringValidator,
+  article_page_title: stringValidator,
+  article_meta_description: stringValidator,
   title: nonEmptyStringValidator,
   article_title: nonEmptyStringValidator,
+  blog_commentable: validateBlogCommentPolicy,
   blog_title: nonEmptyStringValidator,
   tags: nonEmptyStringValidator,
   blog_tags: nonEmptyStringValidator,
   article_tags: nonEmptyStringValidator,
+  price: isValidNumber,
   options: validateProductOptions,
   variants: validateProductVariants,
-  article_metafield: validateObjectMetafield,
-  blog_metafield: validateObjectMetafield,
+  article_metafield: validateMetafieldArray,
+  blog_metafield: validateMetafieldArray,
   article_published_at: validateDate,
   published_at: validateDate,
   created_at: validateDate,
@@ -344,6 +392,8 @@ const FIELD_VALIDATORS = {
   status: validateProductStatus,
   page_title: nonEmptyStringValidator,
   meta_description: nonEmptyStringValidator,
+  blog_page_title: stringValidator,
+  blog_meta_description: stringValidator,
 };
 
 export function validateData(data: Record<string, any>, shopName?: string, category?: CATEGORY): ValidationResult {
@@ -359,38 +409,39 @@ export function validateData(data: Record<string, any>, shopName?: string, categ
       validatedData[fieldName] = DEFAULT_VALUES[fieldName];
     }
   });
+  const handleUrlValidation = (key: string, data: any, shopName: string, category: string) => {
+    const titleMap = {
+      'title': data?.title,
+      'blog_title': data?.blog_title,
+      'article_title': data?.article_title
+    };
+    if (key === 'article_handle' && data?.blog_title && data?.article_title) {
+      return constructShopifyUrl(
+        `${data.blog_title}/${data.article_title}`, 
+        shopName, 
+        category
+      );
+    }
+    const title = Object.values(titleMap).find(t => Boolean(t));
+    return title 
+      ? constructShopifyUrl(title, shopName, category)
+      : processInvalidFieldValue(key, DEFAULT_VALUES);
+  };
+  const isHandleField = (key: string) => {
+    return ['handle', 'blog_handle', 'article_handle'].includes(key);
+  };
   Object.entries(data).forEach(([key, value]) => {
     if (!GENERIC_FORM.some(field => field.name === key)) return;
     const validator = FIELD_VALIDATORS[key];
     const validation = validator ? validator(value) : { isValid: true };
     if (validation.isValid) {
-      validatedData[key] = processFieldValue(key, value); 
-    } else {
-      errors.push(createAIError(key, value, validation.error || 'invalid format'));
-      if (key === 'handle' || key === 'blog_handle' || key === 'article_handle' && shopName) {
-        let title: string | undefined;
-        switch (true) {
-          case Boolean(data?.title):
-            title = data?.title;
-            break;
-          case Boolean(data?.blog_title):
-            title = data?.blog_title;
-            break;
-          case Boolean(data?.article_title):
-            title = data?.article_title;
-            break;
-          default:
-            title = undefined;
-        }
-        if (title) {
-          validatedData[key] = constructShopifyUrl(title, shopName, category);
-        } else {
-          validatedData[key] = processInvalidFieldValue(key, DEFAULT_VALUES);
-        }
-      } else {
-        validatedData[key] = processInvalidFieldValue(key, DEFAULT_VALUES);
-      }
+      validatedData[key] = processFieldValue(key, value);
+      return;
     }
+    errors.push(createAIError(key, value, validation.error || 'invalid format'));
+    validatedData[key] = isHandleField(key) && shopName
+      ? handleUrlValidation(key, data, shopName, category)
+      : processInvalidFieldValue(key, DEFAULT_VALUES);
   });
   requiredFields.forEach(fieldName => {
     if (!(fieldName in validatedData)) {
@@ -426,7 +477,7 @@ function processFieldValue(key: string, value: any): any {
       
     status: (val: string): string => {
       const validStatus = STATUS_OPTIONS.find(s => s.value === val);
-      return validStatus ? validStatus.value : 'draft';
+      return validStatus ? validStatus.value : 'DRAFT';
     },
     tags: (val: string | string[]): string => 
       Array.isArray(val) ? val.join(', ') : 
@@ -474,14 +525,14 @@ function constructShopifyUrl(title: string, shopName: string, category: CATEGORY
     .replace(/[^\w\s-]/g, '') 
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-');
-  const baseUrl = `https://${shopName}.myshopify.com/`;
+  const baseUrl = `https://${shopName}.myshopify.com`;
   switch (category) {
     case ContentCategory.BLOG:
-      return `${baseUrl}blogs/${urlFriendlyTitle}`;
+      return `${baseUrl}/blogs/${urlFriendlyTitle}`;
     case ContentCategory.ARTICLE:
-      return `${baseUrl}articles/${urlFriendlyTitle}`;
+      return `${baseUrl}/blogs/${urlFriendlyTitle}`;
     case ContentCategory.PRODUCT:
-      return `${baseUrl}products/${urlFriendlyTitle}`;
+      return `${baseUrl}/products/${urlFriendlyTitle}`;
     default:
       throw new Error(`Invalid category: ${category}`);
   }

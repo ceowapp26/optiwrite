@@ -64,18 +64,10 @@ const AppPage = () => {
     isLoading,
     setIsLoading,
   });
-  const onEditFullscreenClose = () => setIsEditFullScreen(false);
-  const onEditFullscreenOpen = () => setIsEditFullScreen(true);
   const onSidebarOpen = () => setIsSidebarOpened(true);
   const onSidebarClose = () => setIsSidebarOpened(false);
   const onSidebarToggle = () => setIsSidebarOpened(!isSidebarOpened);
-  const onPreviewToggle = () => setIsPreview(!isPreview);
-  const onOpenPreview = () => setIsPreview(true);
-
-  const onFullscreenToggle = () => {
-    setIsFullScreen(!isFullScreen)
-    setIsPreview(isFullScreen);
-  };
+  const onToggleFullScreen = () => setIsFullScreen(!isFullScreen);
 
   const handleCompleteTour = useCallback(() => {
     eventEmitter.publish('SHOW_TOUR_COMPLETION');
@@ -274,12 +266,9 @@ const AppPage = () => {
             theme={theme}
             toggleTheme={toggleTheme}
             handleStartTour={handleStartTour}
-            isFullscreen={isFullScreen} 
-            isPreview={isPreview}
-            onOpenPreview={onOpenPreview}
+            isFullScreen={isFullScreen} 
             setIsFullScreen={setIsFullScreen}
-            onOpenFullscreen={onFullscreenToggle}
-            onClosePreview={onPreviewToggle}
+            onToggleFullScreen={onToggleFullScreen}
             isOpenSidebar={isSidebarOpened} 
             onToggleSidebar={onSidebarToggle} 
             onOpenSidebar={onSidebarOpen}

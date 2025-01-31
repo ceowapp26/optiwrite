@@ -30,9 +30,12 @@ const StatusBadge = ({ status }: { status: string }) => {
 const PackageGroup = ({ title, packages }: { title: string; packages: CreditPackageDetails[] }) => {
   const groupMetrics = packages.reduce((acc, pkg) => ({
     totalCredits: acc.totalCredits + (pkg.package?.creditAmount || 0),
-    creditsUsed: acc.creditsUsed + (pkg.usage?.creditsUsed || 0),
+    aiCreditsTotal: acc.aiCreditsTotal + (pkg.features?.ai?.creditLimits || 0),
+    aiCreditsUsed: acc.aiCreditsUsed + (pkg.usage?.ai?.creditsUsed || 0),
     aiRequestsTotal: acc.aiRequestsTotal + (pkg.features?.ai?.requestLimits || 0),
     aiRequestsUsed: acc.aiRequestsUsed + (pkg.usage?.ai?.requestsUsed || 0),
+    crawlCreditsTotal: acc.crawlCreditsTotal + (pkg.features?.crawl?.creditLimits || 0),
+    crawlCreditsUsed: acc.crawlCreditsUsed + (pkg.usage?.crawl?.creditsUsed || 0),
     crawlRequestsTotal: acc.crawlRequestsTotal + (pkg.features?.crawl?.requestLimits || 0),
     crawlRequestsUsed: acc.crawlRequestsUsed + (pkg.usage?.crawl?.requestsUsed || 0),
     activeCount: acc.activeCount + ((pkg.status === 'ACTIVE') ? 1 : 0),
@@ -47,9 +50,12 @@ const PackageGroup = ({ title, packages }: { title: string; packages: CreditPack
     discounts: [...acc.discounts, ...(pkg.billingAdjustments?.discounts || [])]
   }), {
     totalCredits: 0,
-    creditsUsed: 0,
+    aiCreditsTotal: 0,
+    aiCreditsUsed: 0, 
     aiRequestsTotal: 0,
     aiRequestsUsed: 0,
+    crawlCreditsTotal: 0,
+    crawlCreditsUsed: 0,
     crawlRequestsTotal: 0,
     crawlRequestsUsed: 0,
     activeCount: 0,
@@ -149,11 +155,17 @@ const PackageGroup = ({ title, packages }: { title: string; packages: CreditPack
         <div className="py-4 bg-gray-50 rounded-lg">
           <h4 className="text-sm font-semibold flex items-center gap-2 p-1">
             <Network className="w-4 h-4" />
-            Total Requests
+            Package Metrics
           </h4>
           <div className="grid grid-cols-2 gap-4 px-1">
             <div className="p-4 bg-gray-100 rounded-lg">
-              <h4 className="text-sm font-semibold mb-2">AI API Usage</h4>
+              <h4 className="text-sm font-semibold mb-2">AI API Metrics</h4>
+               <div className="space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <span>Total Credits:</span>
+                  <span>{groupMetrics.aiCreditsTotal || 0}</span>
+                </div>
+              </div>
               <div className="space-y-1 text-sm">
                 <div className="flex justify-between">
                   <span>Total Requests:</span>
@@ -162,7 +174,13 @@ const PackageGroup = ({ title, packages }: { title: string; packages: CreditPack
               </div>
             </div>
             <div className="p-4 bg-gray-50 rounded-lg">
-              <h4 className="text-sm font-semibold mb-2">Crawl API Usage</h4>
+              <h4 className="text-sm font-semibold mb-2">Crawl API Metrics</h4>
+               <div className="space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <span>Total Credits:</span>
+                  <span>{groupMetrics.crawlCreditsTotal || 0}</span>
+                </div>
+              </div>
               <div className="space-y-1 text-sm">
                 <div className="flex justify-between">
                   <span>Total Requests:</span>
@@ -235,7 +253,6 @@ const CreditDetails = ({
     packages = [], 
     totalCreditsAvailable = 0 
   } = details || {};
-
   const groupedPackages = packages?.reduce((acc, pkg) => {
     const groupName = pkg?.package?.name?.startsWith('CUSTOM_') ? 'CUSTOM' : pkg?.package?.name || 'OTHER';
     if (!acc[groupName]) {

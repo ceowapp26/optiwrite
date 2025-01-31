@@ -36,7 +36,7 @@ import { Grid } from "@mui/material";
 import { useFormContext } from 'react-hook-form';
 import { type ContentUpdate } from '@/context/GeneralContextProvider';
 import { useAppDispatch, useAppSelector } from "@/hooks/useLocalStore";
-import { BLOG_FORM } from '@/constants/content';
+import { UPDATE_BLOG_FORM, BLOG_FORM } from '@/constants/content';
 import { CONTENT, CATEGORY, ContentCategory } from '@/types/content';
 import { useShopifySubmit } from '@/hooks/useShopifySubmit';
 import { ShopApiService } from '@/utils/api';
@@ -139,6 +139,7 @@ interface BaseProps {
 interface ContentFormProps extends BaseProps {
   contentId: string;
   content: CONTENT;
+  isUpdate: boolean; 
   onContentChange: (newContent: CONTENT) => void;
   onBodyContentUpdate: (newContent: CONTENT) => void;
   isRealtimeEditing?: boolean;
@@ -157,7 +158,16 @@ const BlogForm: React.FC<ContentFormProps> = ({
   isRealtimeEditing,
   setIsRealtimeEditing, 
   handleShopifyAI,
+  isUpdate = false
 }) => {
+  const {
+    register,
+    formState: { errors },
+    control,
+    trigger,
+    setValue,
+    watch
+  } = useFormContext();
   const dispatch = useAppDispatch();
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [currentImageUrl, setCurrentImageUrl] = useState("");
@@ -175,15 +185,6 @@ const BlogForm: React.FC<ContentFormProps> = ({
     images.push(...additionalImages.filter(img => img !== featuredImage));
     return images.filter(Boolean);
   }, [content?.output?.images, content?.output?.image?.src]);
-
-  const {
-    register,
-    formState: { errors },
-    control,
-    trigger,
-    setValue,
-    watch
-  } = useFormContext();
 
   const handleCurrentImageChange = (index: number, url: string) => {
     setCurrentImageIndex(index);
@@ -203,60 +204,6 @@ const BlogForm: React.FC<ContentFormProps> = ({
       return false;
     }
   };
-
-  /*const updateImageInStorage = async (fileUrl: string, newFile: File) => {
-    const isSupabaseImage = isSupabaseImageUrl(fileUrl);
-    if (!isSupabaseImage) return;  
-    try {
-      let filePath: string;
-      if (fileUrl.includes('/optiwrite-images/')) {
-        filePath = fileUrl.split('/optiwrite-images/')[1].toLowerCase();
-      } else if (fileUrl.includes('/object/public/')) {
-        filePath = fileUrl.split('/object/public/optiwrite-images/')[1].toLowerCase();
-      } else {
-        throw new Error("Invalid file path format");
-      }
-      filePath = filePath.replace(/^\/+|\/+$/g, '');
-      /*const { data: existingFile, error: listError } = await supabase.storage
-        .from("optiwrite-images")
-        .list('uploads', {
-          search: filePath
-        });
-
-      if (listError) {
-        throw listError;
-      }
-      if (!existingFile || existingFile.length === 0) {
-        throw new Error("Image not found in storage");
-      }
-      const { data, error } = await supabase.storage
-      .from(`optiwrite-images`)
-      .update(filePath, newFile, {
-        cacheControl: "3600",
-        upsert: true,
-      });
-
-      if (error) {
-        console.error("Supabase storage error details:", error);
-        throw error;
-      }
-      const { data: { publicUrl } } = supabase.storage
-        .from(`optiwrite-images`)
-        .getPublicUrl(filePath);
-      toast.success("Image updated successfully.");
-      return publicUrl;
-    } catch (error) {
-        console.error("Error updating image:", error);
-      if (error instanceof Error) {
-        if (error.message === "Invalid file path format") {
-          toast.error("Invalid file path format");
-        } else {
-         toast.error("Error updating the image. Please try again.");
-        }
-      }
-      throw error;
-    }
-  };*/
 
   const removeImageFromStorage = useCallback(
     async (fileUrl: string) => {
@@ -417,50 +364,89 @@ const BlogForm: React.FC<ContentFormProps> = ({
   };
 
   const renderFormFields = useMemo(() => {
-     const filteredFields = BLOG_FORM.filter((field) => 
-        Object.keys(content?.output || {}).includes(field.name)
-      );
-      return (
+    const selectedForm = isUpdate ? UPDATE_BLOG_FORM : BLOG_FORM;
+    const outputKeys = Object.keys(content?.output || {});
+    const filteredFields = selectedForm.filter((field) => 
+      outputKeys.includes(field.name)
+    );
+    const groupedFields = filteredFields.reduce((acc, field) => {
+      if (field.name.startsWith('blog_')) {
+        acc.blogFields.push(field);
+      } else if (field.name.startsWith('article_')) {
+        acc.articleFields.push(field);
+      } else {
+        acc.otherFields.push(field);
+      }
+      return acc;
+    }, { blogFields: [], articleFields: [], otherFields: [] });
+    const renderField = (field) => (
+      <FormGenerator
+        key={field.name}
+        defaultValue={
+          field.name === "article_id"
+            ? content?.output?.article_id || ""
+            : field.name === "input_data"
+            ? content?.input || "{}"
+            : field.name === "article_image"
+            ? content?.input?.urls[0] || ""
+            : content?.output?.[field.name] || ""
+        }
+        {...field}
+        register={register}
+        errors={errors}
+        control={control}
+        setValue={setValue}
+        watch={watch}
+        trigger={trigger}
+        content={content}
+        setContent={onContentChange}
+        handleShopifyAI={handleShopifyAI}
+        shopName={shopName}
+        userId={userId}
+        aiEnabled
+      />
+    );
+
+    return (
       <Box className="w-full py-10 px-6">
-        {filteredFields.map((field) => (
-          <FormGenerator
-            key={field}
-            defaultValue={
-              field === "input_data"
-                ? content?.input || ""
-                : field === "article_image"
-                ? content?.input?.urls[0] || ""
-                : content?.output?.[field] || ""
-            }
-            {...field}
-            register={register}
-            errors={errors}
-            control={control}
-            setValue={setValue}
-            watch={watch}
-            trigger={trigger}
-            content={content}
-            setContent={onContentChange}
-            handleShopifyAI={handleShopifyAI}
-            shopName={shopName}
-            userId={userId}
-            aiEnabled
-          />
-        ))}
+        {groupedFields.blogFields.length > 0 && (
+          <Box className="mb-8">
+            <BlockStack gap="500">
+              <Text variant="h3">Blog Details</Text>
+              {groupedFields.blogFields.map(renderField)}
+            </BlockStack>
+          </Box>
+        )}
+        
+        {groupedFields.articleFields.length > 0 && (
+          <Box className="mb-8">
+            <BlockStack gap="500">
+              <Text variant="h3">Article Details</Text>
+              {groupedFields.articleFields.map(renderField)}
+            </BlockStack>
+          </Box>
+        )}
+        
+        {groupedFields.otherFields.length > 0 && (
+          <Box>
+            <Text variant="h6" className="mb-4">Other Details</Text>
+            {groupedFields.otherFields.map(renderField)}
+          </Box>
+        )}
       </Box>
     );
   }, [
-    content?.output, 
-    content?.input, 
-    register, 
-    errors, 
-    control, 
-    setValue, 
-    watch, 
-    trigger, 
-    onContentChange, 
-    handleShopifyAI, 
-    shopName, 
+    content?.output,
+    content?.input,
+    register,
+    errors,
+    control,
+    setValue,
+    watch,
+    trigger,
+    onContentChange,
+    handleShopifyAI,
+    shopName,
     userId
   ]);
 

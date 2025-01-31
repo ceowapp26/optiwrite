@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Prompt } from '@/types/prompt';
 import { ContentCategory } from '@/types/content';
 
  export const VALUE_CONSTRAINTS = {
@@ -130,37 +131,16 @@ export const generateLengthConstraints = (mainContentLimit = 1000) => {
  * HTML Template Generator for TipTap and Shopify Compatible Content
  */
 
-export const GENERAL_VALIDATION_RULES = {
-  structure: [
-    { 'Verify proper HTML nesting': true },
-    { 'Ensure all tags are properly closed': true },
-    { 'Validate heading hierarchy': true },
-    { 'Check for required Shopify attributes': true }
-  ],
-  seo: [
-    { 'Verify keyword placement in headings': true },
-    { 'Check meta description length': true },
-    { 'Validate image alt texts': true },
-    { 'Ensure proper URL structure': true }
-  ],
-  accessibility: [
-    { 'Verify ARIA labels where needed': true },
-    { 'Check color contrast ratios': true },
-    { 'Ensure keyboard navigation support': true },
-    { 'Validate form labels and inputs': true }
-  ]
-};
-
 export const generateContentCategoryRequirements = (category, includedFields = [], mainContentLimit, sections, includedMedias = [], isNewBlog = null) => {
   const lengthConstraints = generateLengthConstraints(mainContentLimit);
   const articleFields = includedFields.find(field => typeof field === 'object' && field.hasOwnProperty('article'))?.article || [];
-
+  const blogFields = includedFields.find(field => typeof field === 'object' && field.hasOwnProperty('blog'))?.blog || [];
   switch (category) {
     case ContentCategory.BLOG:
       return {
         title: includedFields.includes('title') ? {
           structure: {
-            format: '[Engaging Headline] + [Primary Keyword] + [Brand Value]',
+            format: '[Engaging Headline]',
             length: lengthConstraints.title,
             requirements: [
               'Craft click-worthy headline that sparks curiosity',
@@ -177,7 +157,7 @@ export const generateContentCategoryRequirements = (category, includedFields = [
         } : null,
 
         commentable: includedFields.includes('commentable') ? {
-          format: 'moderate' | 'no' | 'yes',
+          format: 'MODERATED' | 'CLOSED' | 'AUTO_PUBLISHED',
           requirements: [
             'Define whether comments are allowed and under what moderation rules.',
             'Ensure clarity in comment section rules and guidelines.'
@@ -197,14 +177,44 @@ export const generateContentCategoryRequirements = (category, includedFields = [
           ]
         } : null,
 
-        metafield: includedFields.includes('metafield') ? {
+        handle: includedFields.includes('handle') ? {
           requirements: [
-            'Provide additional context or metadata.',
-            'Use for internal categorization.',
-            'Include SEO-relevant information.',
-            'Ensure consistency with blog content.',
-            'Use clear, descriptive keys and values.'
+            'Include main keyword.',
+            'Use hyphens for spaces.',
+            'Use lowercase letters only.',
+            'Avoid special characters.'
           ]
+        } : null,
+
+        metafield: includedFields.includes('metafield') ? {
+          meta_description: includedFields.includes('meta_description') ? {
+            structure: {
+              format: '[Blog Topic] - [Key Value Proposition] | [Brand Name]',
+              requirements: [
+                'Include primary topic keyword in natural language',
+                'Highlight blog category or theme',
+                'Mention target audience benefit',
+                'Use action-oriented language',
+                'Keep within 150-160 characters',
+                'Avoid duplicate meta descriptions',
+                'Include searchable terms relevant to blog content'
+              ]
+            }
+          } : null,
+          page_title: includedFields.includes('page_title') ? {
+            structure: {
+              format: '[Primary Keyword] | [Blog Series/Category] | [Brand Name]',
+              requirements: [
+                'Start with main topic keyword',
+                'Include blog series name if applicable',
+                'Keep within 50-60 characters',
+                'Use title case format',
+                'Include brand name at end',
+                'Maintain consistent category naming',
+                'Avoid keyword stuffing'
+              ]
+            }
+          } : null,
         } : null,
 
         tags: includedFields.includes('tags') ? {
@@ -240,6 +250,15 @@ export const generateContentCategoryRequirements = (category, includedFields = [
               format: 'Structured, SEO-optimized HTML content',
               length: lengthConstraints.body_html,
               requirements: {
+                ...(sections && {
+                  contentSections: [
+                    `***CRITICAL REQUIREMENT***: GENERATE EXACTLY ${sections?.quantity} sections of content`,
+                    `***MANDATORY RULE***: USE THE PROVIDED TITLES: ${sections?.titles?.join(", ") || "None provided"} in sequential order for each generated section`,
+                    "***IMPORTANT***: Titles must be used STRICTLY as provided - NO MODIFICATIONS or ALTERATIONS allowed",
+                    "IF more sections are specified than titles provided or no titles are provided, SECTIONS must have procedurally generated titles that match the content's context",
+                    "ENSURE each section maintains consistent depth, quality, and relevance to the overall content theme"
+                  ],
+                }),
                 contentQuality: [
                   'Provide actionable, valuable insights.',
                   'Use storytelling techniques to maintain reader engagement.',
@@ -281,7 +300,7 @@ export const generateContentCategoryRequirements = (category, includedFields = [
                   'Include infographics or visual data representations, strategically placed to simplify complex information and improve reader understanding.',
                   'Ensure image alt text is descriptive and keyword-rich, maintaining naturalness and avoiding redundancy.',
                   'Optimize image file sizes for fast loading, with modern formats and responsive scaling for all devices.',
-                  `Incorporate provided high-quality media (images, audio, video) from the given URLs: ${includedMedias} strategically throughout the content with <img>, <audio>, <video> tags, aligning them to the text they support, while ensuring they break up content visually and remain responsive for different layouts.`,
+                  `!!!IMPORTANT REQUIREMENT: Make sure to incorporate provided high-quality media (images, audio, video) from the given URLs: ${includedMedias} strategically throughout the content with <img>, <audio>, <video> tags, aligning them to the text they support, while ensuring they break up content visually and remain responsive for different layouts.`,
                   'Ensure all media is responsive, optimized for fast loading with modern formats, and scales seamlessly across devices.'
                 ]
               }
@@ -308,14 +327,44 @@ export const generateContentCategoryRequirements = (category, includedFields = [
             ]
           } : null,
 
-          metafield: articleFields.includes('metafield') ? {
+          handle: includedFields.includes('handle') ? {
             requirements: [
-              'Provide additional context or metadata.',
-              'Use for internal categorization.',
-              'Include SEO-relevant information.',
-              'Ensure consistency with blog content.',
-              'Use clear, descriptive keys and values.'
+              'Include main keyword.',
+              'Use hyphens for spaces.',
+              'Use lowercase letters only.',
+              'Avoid special characters.'
             ]
+          } : null,
+
+          metafield: articleFields.includes('metafield') ? {
+            meta_description: includedFields.includes('meta_description') ? {
+              structure: {
+                format: '[Article Topic] - [Unique Insight/Benefit] | [Publication Name]',
+                requirements: [
+                  'Focus on article\'s unique angle or findings',
+                  'Include primary and secondary keywords naturally',
+                  'Emphasize news value or timeliness',
+                  'Target specific reader intent',
+                  'Keep within 150-160 characters',
+                  'Use compelling, journalistic language',
+                  'Include current year if relevant'
+                ]
+              }
+            } : null,
+            page_title: includedFields.includes('page_title') ? {
+              structure: {
+                format: '[Headline Keyword] - [Subheading] | [Publication]',
+                requirements: [
+                  'Use news-style headlines',
+                  'Include time-sensitive keywords',
+                  'Keep within 50-60 characters',
+                  'Front-load important keywords',
+                  'Add publication name at end',
+                  'Use numbers and data when relevant',
+                  'Include location if applicable'
+                ]
+              }
+            } : null,
           } : null
         } : null
       };
@@ -355,6 +404,15 @@ export const generateContentCategoryRequirements = (category, includedFields = [
             format: 'Structured, SEO-optimized HTML content',
             length: lengthConstraints.body_html,
             requirements: {
+              ...(sections && {
+                contentSections: [
+                  `***CRITICAL REQUIREMENT***: GENERATE EXACTLY ${sections?.quantity} sections of content`,
+                  `***MANDATORY RULE***: USE THE PROVIDED TITLES: ${sections?.titles?.join(", ") || "None provided"} in sequential order for each generated section`,
+                  "***IMPORTANT***: Titles must be used STRICTLY as provided - NO MODIFICATIONS or ALTERATIONS allowed",
+                  "IF more sections are specified than titles provided or no titles are provided, SECTIONS must have procedurally generated titles that match the content's context",
+                  "ENSURE each section maintains consistent depth, quality, and relevance to the overall content theme"
+                ],
+              }),
               contentQuality: [
                 'Provide actionable, valuable insights',
                 'Use storytelling techniques to maintain reader engagement',
@@ -421,14 +479,142 @@ export const generateContentCategoryRequirements = (category, includedFields = [
           ]
         } : null,
 
-        metafield: includedFields.includes('metafield') ? {
+        handle: includedFields.includes('handle') ? {
           requirements: [
-            'Provide additional context or metadata',
-            'Use for internal categorization',
-            'Include SEO-relevant information',
-            'Ensure consistency with blog content',
-            'Use clear, descriptive keys and values'
+            'Include main keyword.',
+            'Use hyphens for spaces.',
+            'Use lowercase letters only.',
+            'Avoid special characters.'
           ]
+        } : null,
+
+        metafield: includedFields.includes('metafield') ? {
+          meta_description: includedFields.includes('meta_description') ? {
+              structure: {
+                format: '[Article Topic] - [Unique Insight/Benefit] | [Publication Name]',
+                requirements: [
+                  'Focus on article\'s unique angle or findings',
+                  'Include primary and secondary keywords naturally',
+                  'Emphasize news value or timeliness',
+                  'Target specific reader intent',
+                  'Keep within 150-160 characters',
+                  'Use compelling, journalistic language',
+                  'Include current year if relevant'
+                ]
+              }
+            } : null,
+          page_title: includedFields.includes('page_title') ? {
+            structure: {
+              format: '[Headline Keyword] - [Subheading] | [Publication]',
+              requirements: [
+                'Use news-style headlines',
+                'Include time-sensitive keywords',
+                'Keep within 50-60 characters',
+                'Front-load important keywords',
+                'Add publication name at end',
+                'Use numbers and data when relevant',
+                'Include location if applicable'
+              ]
+            }
+          } : null,
+        } : null,
+
+        blog: blogFields.length ? {
+          title: includedFields.includes('title') ? {
+            structure: {
+              format: '[Engaging Headline]',
+              length: lengthConstraints.title,
+              requirements: [
+                'Craft click-worthy headline that sparks curiosity',
+                'Incorporate primary blog topic keyword naturally',
+                'Highlight unique perspective or key insight',
+                'Maintain emotional resonance and reader engagement',
+                'Optimize for social media shareability',
+                'Ensure clarity and direct communication of article\'s core message',
+                'Keep title between 55-70 characters for optimal display',
+                'Use power words that evoke emotion or urgency',
+                'Avoid clickbait - maintain authenticity'
+              ]
+            }
+          } : null,
+
+          commentable: includedFields.includes('commentable') ? {
+            format: 'MODERATED' | 'CLOSED' | 'AUTO_PUBLISHED',
+            requirements: [
+              'Define whether comments are allowed and under what moderation rules.',
+              'Ensure clarity in comment section rules and guidelines.'
+            ]
+          } : null,
+
+          feedburner: includedFields.includes('feedburner') ? {
+            requirements: [
+              'Provide the RSS feed URL for the blog.',
+              'Ensure the feed is properly configured for use with feed services.'
+            ]
+          } : null,
+
+          feedburner_location: includedFields.includes('feedburner_location') ? {
+            requirements: [
+              'Specify the location of the feedburner URL for feed management.'
+            ]
+          } : null,
+
+          handle: includedFields.includes('handle') ? {
+            requirements: [
+              'Include main keyword.',
+              'Use hyphens for spaces.',
+              'Use lowercase letters only.',
+              'Avoid special characters.'
+            ]
+          } : null,
+
+          metafield: includedFields.includes('metafield') ? {
+            meta_description: includedFields.includes('meta_description') ? {
+              structure: {
+                format: '[Blog Topic] - [Key Value Proposition] | [Brand Name]',
+                requirements: [
+                  'Include primary topic keyword in natural language',
+                  'Highlight blog category or theme',
+                  'Mention target audience benefit',
+                  'Use action-oriented language',
+                  'Keep within 150-160 characters',
+                  'Avoid duplicate meta descriptions',
+                  'Include searchable terms relevant to blog content'
+                ]
+              }
+            } : null,
+            page_title: includedFields.includes('page_title') ? {
+              structure: {
+                format: '[Primary Keyword] | [Blog Series/Category] | [Brand Name]',
+                requirements: [
+                 'Start with main topic keyword',
+                'Include blog series name if applicable',
+                'Keep within 50-60 characters',
+                'Use title case format',
+                'Include brand name at end',
+                'Maintain consistent category naming',
+                'Avoid keyword stuffing'
+                ]
+              }
+            } : null,
+          } : null,
+
+          tags: includedFields.includes('tags') ? {
+            requirements: [
+              'Use 3-5 relevant tags.',
+              'Include primary and secondary keywords.',
+              'Align with blog topic and category.',
+              'Use lowercase, hyphen-separated tags.',
+              'Consider searchability and user discovery.'
+            ]
+          } : null,
+
+          template_suffix: includedFields.includes('template_suffix') ? {
+            requirements: [
+              'Specify the template suffix to apply to the blog post.',
+              'Ensure the suffix is consistent with the blog template structure.'
+            ]
+          } : null,
         } : null
       } : {
         title: includedFields.includes('title') ? {
@@ -464,6 +650,15 @@ export const generateContentCategoryRequirements = (category, includedFields = [
             format: 'Structured, SEO-optimized HTML content',
             length: lengthConstraints.body_html,
             requirements: {
+              ...(sections && {
+                contentSections: [
+                  `***CRITICAL REQUIREMENT***: GENERATE EXACTLY ${sections?.quantity} sections of content`,
+                  `***MANDATORY RULE***: USE THE PROVIDED TITLES: ${sections?.titles?.join(", ") || "None provided"} in sequential order for each generated section`,
+                  "***IMPORTANT***: Titles must be used STRICTLY as provided - NO MODIFICATIONS or ALTERATIONS allowed",
+                  "IF more sections are specified than titles provided or no titles are provided, SECTIONS must have procedurally generated titles that match the content's context",
+                  "ENSURE each section maintains consistent depth, quality, and relevance to the overall content theme"
+                ],
+              }),
               contentQuality: [
                 'Provide actionable, valuable insights',
                 'Use storytelling techniques to maintain reader engagement',
@@ -510,6 +705,15 @@ export const generateContentCategoryRequirements = (category, includedFields = [
           }
         } : null,
 
+        handle: includedFields.includes('handle') ? {
+          requirements: [
+            'Include main keyword.',
+            'Use hyphens for spaces.',
+            'Use lowercase letters only.',
+            'Avoid special characters.'
+          ]
+        } : null,
+
         summary_html: includedFields.includes('summary_html') ? {
           requirements: [
             'Concise overview of blog post content',
@@ -531,13 +735,34 @@ export const generateContentCategoryRequirements = (category, includedFields = [
         } : null,
 
         metafield: includedFields.includes('metafield') ? {
-          requirements: [
-            'Provide additional context or metadata',
-            'Use for internal categorization',
-            'Include SEO-relevant information',
-            'Ensure consistency with blog content',
-            'Use clear, descriptive keys and values'
-          ]
+          meta_description: includedFields.includes('meta_description') ? {
+              structure: {
+                format: '[Article Topic] - [Unique Insight/Benefit] | [Publication Name]',
+                requirements: [
+                  'Focus on article\'s unique angle or findings',
+                  'Include primary and secondary keywords naturally',
+                  'Emphasize news value or timeliness',
+                  'Target specific reader intent',
+                  'Keep within 150-160 characters',
+                  'Use compelling, journalistic language',
+                  'Include current year if relevant'
+                ]
+              }
+            } : null,
+          page_title: includedFields.includes('page_title') ? {
+            structure: {
+              format: '[Headline Keyword] - [Subheading] | [Publication]',
+              requirements: [
+                'Use news-style headlines',
+                'Include time-sensitive keywords',
+                'Keep within 50-60 characters',
+                'Front-load important keywords',
+                'Add publication name at end',
+                'Use numbers and data when relevant',
+                'Include location if applicable'
+              ]
+            }
+          } : null,
         } : null
       };
 
@@ -562,6 +787,15 @@ export const generateContentCategoryRequirements = (category, includedFields = [
           structure: {
             format: 'Comprehensive, semantically structured HTML',
             requirements: {
+              ...(sections && {
+                contentSections: [
+                  `***CRITICAL REQUIREMENT***: GENERATE EXACTLY ${sections?.quantity} sections of content`,
+                  `***MANDATORY RULE***: USE THE PROVIDED TITLES: ${sections?.titles?.join(", ") || "None provided"} in sequential order for each generated section`,
+                  "***IMPORTANT***: Titles must be used STRICTLY as provided - NO MODIFICATIONS or ALTERATIONS allowed",
+                  "IF more sections are specified than titles provided or no titles are provided, SECTIONS must have procedurally generated titles that match the content's context",
+                  "ENSURE each section maintains consistent depth, quality, and relevance to the overall content theme"
+                ],
+              }),
               contentStructure: [
                 'Detailed product description with clear sections',
                 'Highlight key features and benefits',
@@ -580,18 +814,13 @@ export const generateContentCategoryRequirements = (category, includedFields = [
           }
         } : null,
 
-        meta_description: includedFields.includes('meta_description') ? {
-          structure: {
-            format: '[Unique Value Proposition] + [Key Features] + [User Benefit]',
-            requirements: [
-              'Concise summary of product essence',
-              'Include primary product keywords',
-              'Highlight most compelling features',
-              'Create sense of urgency or desire',
-              'Optimize for click-through rate',
-              'Keep within 150-160 characters'
-            ]
-          }
+        handle: includedFields.includes('handle') ? {
+          requirements: [
+            'Include main keyword.',
+            'Use hyphens for spaces.',
+            'Use lowercase letters only.',
+            'Avoid special characters.'
+          ]
         } : null,
 
         product_type: includedFields.includes('product_type') ? {
@@ -628,17 +857,32 @@ export const generateContentCategoryRequirements = (category, includedFields = [
           }
         } : null,
 
-        page_title: includedFields.includes('page_title') ? {
-          structure: {
-            format: '[Product Name] - [Key Benefit] | [Brand Name]',
-            requirements: [
-              'Optimize for search engines',
-              'Include primary product keyword',
-              'Highlight unique value proposition',
-              'Maintain brand consistency',
-              'Keep within 50-60 characters'
-            ]
-          }
+        metafield: includedFields.includes('metafield') ? {
+          meta_description: includedFields.includes('meta_description') ? {
+            structure: {
+              format: '[Unique Value Proposition] + [Key Features] + [User Benefit]',
+              requirements: [
+                'Concise summary of product essence',
+                'Include primary product keywords',
+                'Highlight most compelling features',
+                'Create sense of urgency or desire',
+                'Optimize for click-through rate',
+                'Keep within 150-160 characters'
+              ]
+            }
+          } : null,
+          page_title: includedFields.includes('page_title') ? {
+            structure: {
+              format: '[Product Name] - [Key Benefit] | [Brand Name]',
+              requirements: [
+                'Optimize for search engines',
+                'Include primary product keyword',
+                'Highlight unique value proposition',
+                'Maintain brand consistency',
+                'Keep within 50-60 characters'
+              ]
+            }
+          } : null,
         } : null,
 
         vendor: includedFields.includes('vendor') ? {
@@ -697,7 +941,7 @@ export const generateContentCategoryRequirements = (category, includedFields = [
 };
 
 export const generatePrompt = (config) => {
-  const { category, includedFields = [], mainContentLimit, sections, tone, includedMedias = [], isNewBlog = null, ...rest } = config;
+  const { category, includedFields = [], mainContentLimit, sections, tone, includedMedias = [], isNewBlog = false, ...rest } = config;
   const categoryFieldRequirements = generateContentCategoryRequirements(category, includedFields, mainContentLimit, sections, includedMedias, isNewBlog);
   return {
     instructions: {
@@ -812,10 +1056,17 @@ export const BASE_ARTICLE_OUTPUT_FORMAT = {
   handle: 'string',
   metafield: [
     {
-      key: "string",
+      key: "meta_description",
       namespace: "string",
-      value: "string | number",
-      value_type: "string | integer",
+      value: "string",
+      value_type: "string",
+      description: "string"
+    },
+    {
+      key: "page_title",
+      namespace: "string",
+      value: "string",
+      value_type: "string",
       description: "string"
     }
   ],
@@ -826,16 +1077,23 @@ export const BASE_ARTICLE_OUTPUT_FORMAT = {
 
 export const BASE_BLOG_OUTPUT_FORMAT = {
   title: 'string',
-  commentable: `string ('moderate' | 'no' | 'yes')`,
+  commentable: `string ('MODERATED' | 'CLOSED' | 'AUTO_PUBLISHED')`,
   feedburner: 'string',
   feedburner_location: 'string',
   handle: 'string',
   metafield: [
     {
-      key: "string",
+      key: "meta_description",
       namespace: "string",
-      value: "string | number",
-      value_type: "string | integer",
+      value: "string",
+      value_type: "string",
+      description: "string"
+    },
+    {
+      key: "page_title",
+      namespace: "string",
+      value: "string",
+      value_type: "string",
       description: "string"
     }
   ],
@@ -851,58 +1109,27 @@ export const BASE_PRODUCT_OUTPUT_FORMAT = {
   tags: 'string (comma-separated)',
   template_suffix: 'string',
   vendor: 'string',
-  status: `string ("active" | "draft" | "archived")`,
-  options: [
+  status: `string ("ACTIVE" | "DRAFT" | "ARCHIVED")`,
+  price: 'number',
+  metafield: [
     {
-      id: 'string',
-      name: 'string',
-      position: 'number',
-      values: ['string']
-    }
-  ],
-  variants: [
+      key: "meta_description",
+      namespace: "string",
+      value: "string",
+      value_type: "string",
+      description: "string"
+    },
     {
-      barcode: 'string',
-      compare_at_price: 'number',
-      fulfillment_service: 'string',
-      grams: 'number',
-      inventory_management: 'string',
-      inventory_policy: 'deny | continue',
-      inventory_quantity: 'number',
-      old_inventory_quantity: 'number',
-      option1: 'string',
-      option2: 'string',
-      option3: 'string',
-      presentment_prices: [
-        {
-          price: {
-            amount: 'number',
-            currency_code: 'string'
-          },
-          compare_at_price: {
-            amount: 'number',
-            currency_code: 'string'
-          }
-        }
-      ],
-      position: 'number',
-      price: 'number',
-      requires_shipping: 'boolean',
-      sku: 'string',
-      taxable: 'boolean',
-      tax_code: 'string',
-      title: 'string',
-      weight: 'number',
-      weight_unit: 'g | kg | oz | lb'
+      key: "page_title",
+      namespace: "string",
+      value: "string",
+      value_type: "string",
+      description: "string"
     }
-  ],
-  seo: {
-    page_title: 'string',
-    meta_description: 'string'
-  }
+  ]
 };
 
-export function generateOutputFormat(category, articleIncluded = false) {
+export function generateOutputFormat(category, articleIncluded = false, isNewBlog = false) {
   switch (category) {
     case ContentCategory.BLOG:
       return articleIncluded
@@ -913,7 +1140,12 @@ export function generateOutputFormat(category, articleIncluded = false) {
         : BASE_BLOG_OUTPUT_FORMAT;
 
     case ContentCategory.ARTICLE:
-      return BASE_ARTICLE_OUTPUT_FORMAT;
+      return isNewBlog
+        ? {
+            ...BASE_ARTICLE_OUTPUT_FORMAT,
+            blog: BASE_ARTICLE_OUTPUT_FORMAT,
+          }
+        : BASE_ARTICLE_OUTPUT_FORMAT;
 
     case ContentCategory.PRODUCT:
       return BASE_PRODUCT_OUTPUT_FORMAT;
@@ -1626,3 +1858,42 @@ export const ContentRequirementsSchema = z.object({
 });
 
 */
+
+export const defaultPrompts: Prompt[] = [
+  {
+    id: '1a2b3c4d-1234-5678-9101-abcdef123456',
+    name: 'Blog Content Creator',
+    category: 'blog',
+    prompt:
+      'I want you to act as a professional blog content creator. I will provide a topic or idea, and you will generate a detailed, engaging, and informative blog post. Structure the content with a clear introduction, main points, and conclusion. Use a conversational tone and include examples, tips, and actionable insights where relevant. Keep the content SEO-friendly by including keywords naturally. Do you understand?',
+  },
+  {
+    id: '2b3c4d5e-2234-5678-9102-bcdef4567890',
+    name: 'Article Writer',
+    category: 'article',
+    prompt:
+      'I want you to act as a professional article writer. I will provide a topic or outline, and you will create a well-researched, authoritative, and engaging article. Focus on presenting valuable information, citing reliable sources if necessary, and maintaining a formal tone. Structure the article with headings and subheadings for clarity. Make the article suitable for publication on reputable platforms. Do you understand?',
+  },
+  {
+    id: '3c4d5e6f-3234-5678-9103-cdef567890ab',
+    name: 'Product Description Generator',
+    category: 'product',
+    prompt:
+      'I want you to act as a product description generator for an e-commerce store. I will provide the product name, key features, and target audience, and you will create a persuasive and detailed description. Highlight the product’s unique selling points, benefits, and how it solves the customer’s problem. Use an appealing yet concise tone suitable for platforms like Shopify or Amazon. Ensure the content is optimized for SEO. Do you understand?',
+  },
+  {
+    id: '4d5e6f7g-4234-5678-9104-def67890abcd',
+    name: 'Content Idea Generator',
+    category: 'general',
+    prompt:
+      'I want you to act as a content idea generator. Based on a specific category or niche I provide, generate a list of creative content ideas for blogs, articles, or product descriptions. Ensure the ideas are relevant, engaging, and tailored to the target audience. Include ideas that are trendy, timeless, or problem-solving. Do you understand?',
+  },
+  {
+    id: '5e6f7g8h-5234-5678-9105-ef7890abcde0',
+    name: 'Marketing Content Generator',
+    category: 'general',
+    prompt:
+      'I want you to act as a professional marketing content generator. Based on the brief I provide, create compelling marketing content that aligns with the brand voice and engages the target audience. Focus on driving conversions, building brand awareness, and enhancing engagement. Use a persuasive tone and include a call-to-action when relevant. Ensure the content is optimized for social media, email campaigns, or web platforms. Do you understand?',
+  },
+];
+

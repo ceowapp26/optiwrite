@@ -130,7 +130,7 @@ interface AIFeatureDetailsProps {
 }
 
 const AIFeatureDetails = ({ aiAPI, creditAmount }: { aiAPI: AIAPIFeature, creditAmount: number }) => {
-  const aiRequests = calculateRequestsFromCredits(creditAmount, 0.1); // Using AI_API conversion rate
+  const aiRequests = calculateRequestsFromCredits(creditAmount, 0.1 * 2); 
   return (
     <APIFeatureCard 
       title="AI API Features" 
@@ -155,7 +155,7 @@ interface CrawlFeatureDetailsProps {
 }
 
 const CrawlFeatureDetails = ({ crawlAPI, creditAmount }: { crawlAPI: CrawlAPIFeature, creditAmount: number }) => {
-  const crawlRequests = calculateRequestsFromCredits(creditAmount, 1); // Using CRAWL_API conversion rate
+  const crawlRequests = calculateRequestsFromCredits(creditAmount, 1 * 2); 
   return (
     <APIFeatureCard 
       title="Crawl API Features" 
@@ -191,7 +191,7 @@ const PackageLimit = ({ packageLimits, interval, creditAmount }: PlanLimitProps 
         <BlockStack gap="200">
           <InlineStack gap="200" align="start">
             <StoreManagedIcon className="w-7 h-7 fill-blue-500" />
-            <Text variant="headingMd">Total Credits: {creditAmount}</Text>
+            <Text variant="headingMd">Credits: {creditAmount}</Text>
           </InlineStack>
         </BlockStack>
       </Box>
@@ -290,7 +290,7 @@ function CreditCard({
   return (
     <Box 
       className={`
-       ${isPopular ? 'h-[780px] sm:h-[780px] md:h-[780px] lg:h-[1050px] xl:h-[820px]' : 'h-[780px] sm:h-[780px] md:h-[780px] lg:h-[950px] xl:h-[770px]'}
+       ${isPopular ? 'h-[730px] sm:h-[730px] md:h-[730px] lg:h-[1000px] xl:h-[750px]' : 'h-[730px] sm:h-[730px] md:h-[730px] lg:h-[900px] xl:h-[730px]'}
         ${ isHovered 
             ? isPopular ? 'bg-primary-50' : 'bg-white'
             : isPopular ? 'bg-primary-25' : 'bg-gray-50'
@@ -332,7 +332,7 @@ function CreditCard({
                   as="h2"
                   color={isPopular ? "primary" : undefined}
                 >
-                  {creditPackage.displayName}
+                  {creditPackage?.name}
                 </Text>
               </InlineStack>
               <Text 
@@ -340,7 +340,7 @@ function CreditCard({
                 as="p" 
                 color="subdued"
               >
-                {creditPackage.shortDescription}
+                {creditPackage?.shortDescription}
               </Text>
               {combinedPromotions?.map(discount => (
                 <PromotionBanner key={discount.id} discount={discount} />

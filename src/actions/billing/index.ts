@@ -32,9 +32,9 @@ export async function createStandardCreditPackages() {
   }
 }
 
-export async function getSubscriptionDetails(shopName: string) {
+export async function getSubscriptionDetails(shopName: string, email?: string) {
   try {
-    const data = await SubscriptionManager.getSubscriptionDetails(shopName);
+    const data = await SubscriptionManager.getSubscriptionDetails(shopName, email);
     return data;
   } catch (error) {
     console.error('Error registering product:', error);
@@ -52,9 +52,9 @@ export async function getPurchaseDetails(shopName: string) {
   }
 }
 
-export async function getCurrentSubscription(shopName: string) {
+export async function getCurrentSubscription(shopName: string, email?: string) {
   try {
-    const data = await SubscriptionManager.getCurrentSubscription(shopName);
+    const data = await SubscriptionManager.getCurrentSubscription(shopName, email);
     return data;
   } catch (error) {
     console.error('Error retrieve current subscription:', error);

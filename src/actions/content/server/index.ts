@@ -5,7 +5,10 @@ import { ContentManager } from '@/utils/content';
 import { revalidatePath } from 'next/cache';
 import { ContentStatus, ContentType } from '@prisma/client';
 import { initializeShopify } from "@/lib/shopify";
+import { ShopifySessionManager } from "@/utils/storage";
+import { ContentOperations } from "@/utils/content/contentOperation";
 import { ContentCategory } from '@/types/content';
+import { shopify } from '@/lib/shopify';
 
  async function createContent(data: CONTENT) {
   try {
@@ -54,48 +57,58 @@ async function getUserContentHistory(
   }
 }
 
-export async function getBlogContents(shopName: string) {
+const shopifyBlogsCache = new Map<string, any>();
+
+export async function getBlogContents(shopName: string, accessToken: string, pagination: number, limit: number) {
   try {
-    const dbContent = await ContentManager.getUserContentHistory(shopName, 1, 50);
-    const blogs = dbContent
-      .filter((content) => content.category === ContentCategory.BLOG && !content?.output?.blog_id)
-      .map((content) => ({
-        contentId: content.id,
-        category: content.category,
-        ...content.output,
-      }));
-    const articles = dbContent
-      .filter((content) => 
-        content.category === ContentCategory.ARTICLE && 
-        content?.output?.blog_id
-      )
-      .map((content) => ({
-        contentId: content.id,
-        category: content.category,
-        blogId: content.output.blog_id,
-        ...content.output,
-      }));
-    const blogArticlesMap = articles.reduce((acc, article) => {
-      const blogId = article.blogId;
-      if (!acc[blogId]) {
-        acc[blogId] = [];
+    const session = await ShopifySessionManager.getSessionFromStorageByAccessToken(accessToken);
+    if (!session) {
+      return new Response(JSON.stringify({ error: 'Invalid or expired session' }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+    const client = new shopify.clients.Graphql({ session });
+    if (!client) {
+      return new Response(JSON.stringify({ error: 'Failed to initialize Shopify client' }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+    const blogOperations = new ContentOperations(client);
+    const fetchLimit = pagination * limit + 2;
+    let lastPageInfo = { hasNextPage: false, endCursor: null };
+    if (pagination === 1) {
+      shopifyBlogsCache.clear();
+    }
+    const cachedBlogs = Array.from(shopifyBlogsCache.values());
+    if (cachedBlogs.length < fetchLimit) {
+      const response = await blogOperations.listBlogs(
+        Math.min(fetchLimit, 50),
+        lastPageInfo.endCursor,
+        undefined,
+        'ID',
+        false
+      );
+      if (response?.blogs?.length) {
+        response.blogs.forEach(blog => {
+          shopifyBlogsCache.set(blog.id, blog);
+        });
+        lastPageInfo = response.pageInfo;
       }
-      acc[blogId].push(article);
-      return acc;
-    }, {});
-    const blogsWithArticles = blogs.map(blog => ({
-      ...blog,
-      articles: blogArticlesMap[blog.contentId] || []
-    }));
+    }
+    const allBlogs = Array.from(shopifyBlogsCache.values());
+    const requestedBlogs = allBlogs.slice(0, pagination * limit);
     return { 
       success: true, 
       data: {
-        blogs: blogsWithArticles,
-        articles: articles
+        blogs: requestedBlogs,
+        totalBlogs: allBlogs?.length,
+        pageInfo: lastPageInfo
       }
     };
   } catch (error) {
-    console.error('Get content history action error:', error);
+    console.error('Get blog content history action error:', error);
     return { 
       success: false, 
       error: 'Failed to fetch blog content' 

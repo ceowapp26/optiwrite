@@ -24,7 +24,7 @@ export async function POST(req: Request): Promise<Response> {
  try {
     const openai = initializeOpenAI();
     const { prompt, shopName, category, model, config } = await req.json();
-    const { description, tone, sections, length, includedFields, context, template = null, isNewBlog = null, articleIncluded = false, imageIncluded = 'no', ...rest } = prompt;
+    const { description, tone, sections, length, includedFields, context, template = null, isNewBlog = false, articleIncluded = false, imageIncluded = 'no', ...rest } = prompt;
     const rateLimitResult = await checkRateLimit(req, config);
     if (rateLimitResult instanceof Response) {
       return rateLimitResult; 
@@ -34,42 +34,16 @@ export async function POST(req: Request): Promise<Response> {
       ...(context?.text && { context: { description: context.text } }),
       ...(template && { template: { content: template } }),
     };
-    const requirementConfig = {
-      handle: {
-        structure: {
-          length: {
-            min: 10, 
-            max: 50,
-            description: "URL handle MUST be between 10-50 characters, INCLUDING spaces and punctuation. UNDER NO CIRCUMSTANCES should the character count **FALL BELOW the minimum** or **EXCEED the maximum limit**."
-          },
-          format:
-          category === ContentCategory.PRODUCT
-            ? `https://${shopName}.myshopify.com/products/[product-url-handle]`
-            : category === ContentCategory.BLOG
-            ? `https://${shopName}.myshopify.com/blogs/[blog-url-handle]`
-            : category === ContentCategory.ARTICLE
-            ? `https://${shopName}.myshopify.com/articles/[article-url-handle]`
-            : '',
-          requirements: [
-            'ALWAYS return a FULL and VALID SHOPIFY URL that strictly adheres to the SPECIFIED FORMAT, ensuring no deviations.',
-            'Include main keyword.',
-            'Use hyphens for spaces.',
-            'Use lowercase letters only.',
-            'Avoid special characters.'
-          ]
-        }
-      },
-      ...generatePrompt({
-        category: extractCategory(category),
-        tone,
-        sections,
-        mainContentLimit: length,
-        includedFields,
-        ...(context?.medias && { includedMedias: context.medias || []}),
-        ...(category === ContentCategory.ARTICLE && { isNewBlog })
-      })
-    };
-
+    const requirementConfig = generatePrompt({
+      category: extractCategory(category),
+      tone,
+      sections,
+      mainContentLimit: length,
+      includedFields,
+      ...(context?.medias && { includedMedias: context.medias || []}),
+      ...(category === ContentCategory.ARTICLE && { isNewBlog })
+    });
+    
     const matchObject = { category, imageIncluded: imageIncluded === 'unsplash' };
 
     const messages = match(matchObject)
@@ -91,10 +65,10 @@ export async function POST(req: Request): Promise<Response> {
          EACH RESPONSE **MUST** ensure that the **ORIGINAL MESSAGE** and **INTENT** are maintained, while adapting to the **OVERALL CONTEXT**, and considering the **BROADER THEME**.
          Ensure the response adheres to the structure and context outlined in the requirements. 
          Even if certain inputs appear out of place, you should integrate them in a way that maintains coherence with the **OVERALL THEME** and **NARRATIVE**, delivering the best results every time.
-         When a template is provided, your response MUST PRIORITIZE adhering strictly to the given layout, structure, and style without deviation. 
+         When a template is provided, **FOCUS SOLELY** on its writing style. **ALWAYS PRIORITIZE** the **OVERALL CONTEXT**.
          EACH RESPONSE **MUST** deliver **UNIQUELY** crafted content. UNDER NO CIRCUMSTANCES should the output MATCH the input EXACTLY.
          Do not include any additional text or explanations outside the JSON object. 
-         Requirements: ${inputData}`
+         Requirements: ${JSON.stringify(inputData)}`
        },
      ])
      .with({ category: ContentCategory.ARTICLE, imageIncluded: false }, () => [
@@ -105,7 +79,7 @@ export async function POST(req: Request): Promise<Response> {
          ${JSON.stringify(requirementConfig, null, 2)}
          OUTPUT FORMAT:
          Return valid JSON following the provided format:
-         ${JSON.stringify(generateOutputFormat(category), null, 2)}
+         ${JSON.stringify(generateOutputFormat(category, false, isNewBlog), null, 2)}
          CRITICAL: ${BASE_RESPONSE_REQUIREMENTS}`
        },
        {
@@ -115,10 +89,10 @@ export async function POST(req: Request): Promise<Response> {
          EACH RESPONSE **MUST** ensure that the **ORIGINAL MESSAGE** and **INTENT** are maintained, while adapting to the **OVERALL CONTEXT**, and considering the **BROADER THEME**.
          Ensure the response adheres to the structure and context outlined in the requirements. 
          Even if certain inputs appear out of place, you should integrate them in a way that maintains coherence with the **OVERALL THEME** and **NARRATIVE**, delivering the best results every time.
-         When a template is provided, your response MUST PRIORITIZE adhering strictly to the given layout, structure, and style without deviation. 
+         When a template is provided, **FOCUS SOLELY** on its writing style. **ALWAYS PRIORITIZE** the **OVERALL CONTEXT**.
          EACH RESPONSE **MUST** deliver **UNIQUELY** crafted content. UNDER NO CIRCUMSTANCES should the output MATCH the input EXACTLY.
          Do not include any additional text or explanations outside the JSON object. 
-         Requirements: ${inputData}`
+         Requirements: ${JSON.stringify(inputData)}`
        },
      ])
      .with({ category: ContentCategory.PRODUCT, imageIncluded: false }, () => [
@@ -139,10 +113,10 @@ export async function POST(req: Request): Promise<Response> {
          EACH RESPONSE **MUST** ensure that the **ORIGINAL MESSAGE** and **INTENT** are maintained, while adapting to the **OVERALL CONTEXT**, and considering the **BROADER THEME**.
          Ensure the response adheres to the structure and context outlined in the requirements. 
          Even if certain inputs appear out of place, you should integrate them in a way that maintains coherence with the **OVERALL THEME** and **NARRATIVE**, delivering the best results every time.
-         When a template is provided, your response MUST PRIORITIZE adhering strictly to the given layout, structure, and style without deviation. 
+         When a template is provided, **FOCUS SOLELY** on its writing style. **ALWAYS PRIORITIZE** the **OVERALL CONTEXT**.
          EACH RESPONSE **MUST** deliver **UNIQUELY** crafted content. UNDER NO CIRCUMSTANCES should the output MATCH the input EXACTLY.
          Do not include any additional text or explanations outside the JSON object. 
-         Requirements: ${inputData}`
+         Requirements: ${JSON.stringify(inputData)}`
        },
      ])
      .otherwise(() => {

@@ -23,7 +23,6 @@ import {
   Card,
   Badge,
 } from '@shopify/polaris';
-
 import { 
   CashDollarIcon, 
   MeasurementWeightIcon, 
@@ -31,6 +30,8 @@ import {
   CalendarIcon,
   ChatIcon,
   ExternalIcon,
+  CheckIcon,
+  ClockIcon,
   ShareIcon,
   CashDollarFilledIcon,
   CatalogIcon,
@@ -48,6 +49,7 @@ import { type CONTENT } from '@/types/content';
 import ImageCarousel from '@/components/ImageCarousel';
 import { ContentCategory } from '@/types/content';
 import { formatContent } from '@/helpers/formatHtml';
+import { cn } from '@/lib/utils';
 
 interface TopBarProps {
   content: CONTENT;
@@ -57,9 +59,9 @@ interface TopBarProps {
   isPreviewMode?: boolean;
 }
 
-const TopBar: React.FC<TopBarProps> = ({ content, onOpenEditMode, isFullScreen, onToggleFullScreen, layoutMode, isPreviewMode = false }) => {
+const TopBar: React.FC<TopBarProps> = ({ content, onOpenEditMode, isFullScreen, onToggleFullScreen, layoutMode = null, isPreviewMode = false }) => {
   return (
-    <Box className={isPreviewMode ? "py-10 w-full px-14" : ""}>
+    <Box className={isPreviewMode ? "px-4 py-4" : "px-4 w-full pb-4"}>
       <InlineStack align="space-between" blockAlign="center">
         <Box paddingBlockStart="300" paddingBlockEnd="600">
           <Badge size="large" tone="info">
@@ -68,7 +70,7 @@ const TopBar: React.FC<TopBarProps> = ({ content, onOpenEditMode, isFullScreen, 
             </Text>
           </Badge>
         </Box>
-        {layoutMode && layoutMode !== "tabs" &&
+        {isPreviewMode &&
           <InlineStack gap="300" blockAlign="center">
             <Button
               icon={isFullScreen ? MinimizeIcon : MaximizeIcon}
@@ -76,7 +78,7 @@ const TopBar: React.FC<TopBarProps> = ({ content, onOpenEditMode, isFullScreen, 
             />
             <Button
               icon={EditIcon}
-              onClick={() => onOpenEditMode?.(content.id)}
+              onClick={() => onOpenEditMode?.()}
             />
           </InlineStack>
         }
@@ -101,17 +103,16 @@ const FooterBar: React.FC<FooterBarProps> = ({
   onCancel,
   eventType,
   contentType,
-  cancelLabel = 'Cancel',
   loading
 }) => {
   return (
-    <Box padding="400" background="bg-surface" borderRadius="200" shadow="200">
+    <Box padding="600" background="bg-surface" borderRadius="200" shadow="200">
       <ButtonGroup fullWidth gap="loose">
-        <Button variant="secondary" onClick={onCancel}>
-          {cancelLabel}
-        </Button>
-        <Button variant="primary" loading={loading} disabled={loading} onClick={() => onAction(`${eventType}_${contentType}`, content)}>
+        <Button variant="primary" loading={loading} onClick={() => onAction(`${eventType}_${contentType}`, content)}>
           {`${eventType} ${contentType}`}
+        </Button>
+         <Button variant="secondary" disabled={!loading} onClick={onCancel}>
+          Cancel
         </Button>
       </ButtonGroup>
     </Box>
@@ -173,215 +174,399 @@ const TagsList = React.memo(({ tags }) => {
   );
 });
 
-const BlogArticleDisplay = ({ data, isFullScreen }) => {
-  const authorMetadata = data.article_metafields ? 
-    JSON.parse(data.article_metafields)[0]?.value : null;
+const convertArrayToObject = (array) => {
+  return array.reduce((acc, item) => {
+    acc[item.key] = {
+      namespace: item.namespace,
+      value: item.value,
+      value_type: item.value_type,
+      description: item.description,
+    };
+    return acc;
+  }, {});
+};
 
-  const containerClasses = isFullScreen && data?.article_title 
-    ? "w-full max-w-none" 
-    : "w-full max-w-3xl mx-auto";
 
-  const gridClasses = isFullScreen && data?.article_title 
-    ? "grid grid-cols-1 lg:grid-cols-12 gap-6"
-    : "grid grid-cols-1 gap-6";
+interface StatusBadgeProps {
+  status: string;
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+  children?: React.ReactNode;
+}
 
-  const mainColumnClasses = isFullScreen && data?.article_title
-    ? "lg:col-span-8"
-    : "col-span-1";
-
-  const sidebarColumnClasses = isFullScreen && data?.article_title
-    ? "lg:col-span-4"
-    : "col-span-1";
+const StatusBadge = ({ status, icon: Icon, children }: StatusBadgeProps) => {
+  const getStatusColor = (status: string) => {
+    const colors = {
+      success: 'bg-success-subdued text-success',
+      warning: 'bg-caution text-caution',
+    };
+    return colors[status] || 'bg-surface-neutral text-emphasis-subdued';
+  };
 
   return (
-    <Card padding={isFullScreen ? "600" : "400"}>
-      <div className={containerClasses}>
-        <BlockStack gap="600">
-          {(data.article_title || data.blog_commentable || data.article_author || data.article_published) && (
-            <Box background="bg-surface-strong" borderRadius="300" padding="600">
-              <BlockStack gap="400">
-                {data.blog_commentable && (
-                  <InlineStack gap="200" align="center">
-                    {data.blog_title && <Tag tone="info">{data.blog_title}</Tag>}
-                    {data.blog_commentable === 'yes' && (
-                      <Tag tone="success">Comments Enabled</Tag>
-                    )}
-                  </InlineStack>
-                )}
-                {data.article_title && (
-                  <Text variant="heading3xl" as="h1" fontWeight="bold">
-                    {data.article_title}
-                  </Text>
-                )}
-                {(data.article_author || data.article_published) && (
-                  <InlineStack gap="400" align="center" wrap>
-                    {data.article_author && (
-                      <InlineStack gap="200" align="center">
-                        <Avatar customer size="small" name={data.article_author} />
-                        <Text variant="bodyMd" fontWeight="semibold">
-                          {data.article_author}
-                        </Text>
-                      </InlineStack>
-                    )}
-                    {data.article_published !== undefined && (
-                      <>
-                        <Divider />
-                        <Tag tone={data.article_published ? "success" : "warning"}>
-                          {data.article_published ? "Published" : "Draft"}
-                        </Tag>
-                      </>
-                    )}
-                  </InlineStack>
-                )}
-              </BlockStack>
-            </Box>
-          )}
-          <div className={gridClasses}>
-            {(data.article_body_html || data.article_tags) && (
-              <div className={mainColumnClasses}>
-                <BlockStack gap="400">
-                  {data.article_body_html && (
-                    <Card background="bg-surface-strong">
-                      <Box padding="600">
-                        <div 
-                          className="prose prose-lg max-w-none prose-headings:font-semibold prose-a:text-blue-600"
-                          dangerouslySetInnerHTML={{
-                            __html: formatContent(data.article_body_html),
-                          }}
-                        />
-                      </Box>
-                    </Card>
-                  )}
-                  {data.article_tags && (
-                    <Card background="bg-surface-strong">
-                      <Box padding="400">
-                        <InlineStack gap="200" wrap>
-                          <Icon source={ProductIcon} />
-                          {data.article_tags.split(',').map((tag, index) => (
-                            <Tag key={index}>{tag.trim()}</Tag>
-                          ))}
-                        </InlineStack>
-                      </Box>
-                    </Card>
-                  )}
-                </BlockStack>
-              </div>
-            )}
-            {(authorMetadata || data.article_summary_html || data.blog_title || data.blog_commentable) && (
-              <div className={sidebarColumnClasses}>
-                <BlockStack gap="400">
-                  {authorMetadata && (
-                    <Card background="bg-surface-strong">
-                      <Box padding="400">
-                        <BlockStack gap="300">
-                          <Text variant="headingMd" as="h3">About the Author</Text>
-                          <InlineStack gap="300" align="center">
-                            <Avatar customer size="medium" name={data.article_author} />
-                            <BlockStack gap="100">
-                              <Text variant="bodyMd" fontWeight="bold">
-                                {data.article_author}
-                              </Text>
-                              <Text variant="bodySm" tone="subdued">
-                                {authorMetadata}
-                              </Text>
-                            </BlockStack>
-                          </InlineStack>
-                        </BlockStack>
-                      </Box>
-                    </Card>
-                  )}
-                  {data.article_summary_html && (
-                    <Card background="bg-surface-strong">
-                      <Box padding="400">
-                        <BlockStack gap="300">
-                          <Text variant="headingMd" as="h3">Summary</Text>
-                          <div 
-                            className="prose prose-sm"
-                            dangerouslySetInnerHTML={{
-                              __html: formatContent(data.article_summary_html),
-                            }}
-                          />
-                        </BlockStack>
-                      </Box>
-                    </Card>
-                  )}
-                  {(data.blog_title || data.blog_feedburner || data.blog_tags) && (
-                    <Card background="bg-surface-strong">
-                      <Box padding="400">
-                        <BlockStack gap="300">
-                          <Text variant="headingMd" as="h3">Blog Information</Text>
-                          <BlockStack gap="200">
-                            {data.blog_title && (
-                              <InlineStack gap="200" align="center">
-                                <Icon source={BlogIcon} />
-                                <Text variant="bodyMd">{data.blog_title}</Text>
-                              </InlineStack>
-                            )}
-                            {data.blog_feedburner && (
-                              <InlineStack gap="200" align="center">
-                                <Icon source={ExternalIcon} />
-                                <Text variant="bodyMd">RSS Feed Available</Text>
-                              </InlineStack>
-                            )}
-                            {data.blog_tags && (
-                              <Box paddingBlockStart="200">
-                                <InlineStack gap="200" wrap>
-                                  {data.blog_tags.split(',').map((tag, index) => (
-                                    <Tag key={index} tone="info">{tag.trim()}</Tag>
-                                  ))}
-                                </InlineStack>
-                              </Box>
-                            )}
-                          </BlockStack>
-                        </BlockStack>
-                      </Box>
-                    </Card>
-                  )}
-                  {data.blog_commentable && (
-                    <Card background="bg-surface-strong">
-                      <Box padding="400">
-                        <BlockStack gap="300">
-                          <Text variant="headingMd" as="h3">Share & Engage</Text>
-                          <InlineStack gap="200">
-                            <Button icon={ShareIcon}>Share</Button>
-                            {data.blog_commentable === 'yes' && (
-                              <Button icon={ChatIcon}>Comment</Button>
-                            )}
-                          </InlineStack>
-                        </BlockStack>
-                      </Box>
-                    </Card>
-                  )}
-                </BlockStack>
-              </div>
-            )}
-          </div>
-        </BlockStack>
-      </div>
-    </Card>
+    <span
+      className={`
+        inline-flex items-center px-3 py-1 
+        rounded-full text-xs font-medium 
+        shadow-sm backdrop-blur-sm
+        ${getStatusColor(status)}
+      `}
+    >
+      <Icon className="w-5 h-5 mr-2" />
+    </span>
   );
 };
 
-const ProductDisplay = ({ data, isFullScreen }) => {
+const BlogArticleDisplay = ({ 
+  content, 
+  onAction, 
+  onCancel, 
+  contentType, 
+  isPreviewMode, 
+  loading, 
+  isFullScreen 
+}) => {
+  const data = content?.output;
+  const hasBothContent = data.article_title && data.blog_title;
+  const hasArticleOnly = data.article_title && !data.blog_title;
+  const hasBlogOnly = !data.article_title && data.blog_title;
+
+  const blogSEOData = {
+    page_title: data?.blog_page_title,
+    meta_description: data?.blog_meta_description, 
+    handle: data?.blog_handle
+  }
+
+  const articleSEOData = {
+    page_title: data?.article_page_title,
+    meta_description: data?.article_meta_description, 
+    handle: data?.article_handle
+  }
+
+  const containerClasses = cn(
+    "w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-12",
+    {
+      'bg-gradient-to-b from-gray-50/80 to-white': data.article_title || data.blog_title,
+      'bg-white': !data.article_title && !data.blog_title
+    }
+  );
+
+  const layoutClasses = cn(
+    "grid gap-2 lg:gap-2",
+    {
+      'lg:grid-cols-3': hasBothContent && isFullScreen, 
+      'grid-cols-1': !hasBothContent && !isFullScreen
+    }
+  );
+
+  const blogContainerClasses = cn(
+    "space-y-6 relative p-6 bg-amber-50/20 rounded-lg border border-amber-200",
+    { 'lg:col-span-1': hasBothContent && isFullScreen }
+  );
+
+  const articleContainerClasses = cn(
+    "space-y-6 relative p-6 bg-blue-50/20 rounded-lg border border-amber-200",
+    {
+      'lg:col-span-2': hasBothContent && isFullScreen,
+      'col-span-full': hasArticleOnly
+    }
+  );
+
+  return (
+    <div className="min-h-screen px-4 pb-4">
+      <Card padding="0" background="transparent">
+        <div className={containerClasses}>
+          <BlockStack gap="800">
+            <div className={layoutClasses}>
+              {data.blog_title && (
+                <div className={blogContainerClasses}>
+                  <Box 
+                    background="bg-surface"
+                    borderRadius="500" 
+                    padding="400"
+                    shadow="large"
+                  >
+                    <InlineStack gap="300" align="space-between">
+                      <Box className="flex items-center gap-4 px-6 py-3 bg-amber-50 border border-amber-200 text-amber-700 rounded-md shadow-sm">
+                        <InlineStack gap="100" blockAlign="center">
+                          <BlogIcon className="w-5 h-5" />
+                          <Text className="text-sm font-medium">Blog Overview</Text>
+                        </InlineStack>
+                      </Box>
+                    </InlineStack>
+                    <Box 
+                      background="bg-surface"
+                      paddingBlockStart="800"
+                      shadow="large"
+                    >
+                      <Box className="bg-surface-secondary rounded-md shadow-sm">
+                        <BlockStack gap="800">
+                          <Text 
+                            variant="heading3xl" 
+                            as="h1" 
+                            fontWeight="bold"
+                            className="text-gray-900 leading-tight"
+                          >
+                            {data.blog_title}
+                          </Text>
+                          {data.blog_commentable && (
+                            <InlineStack gap="300" align="center">
+                              <Box className="flex items-center gap-4 px-4 py-2 bg-[var(--p-color-bg-fill-info)] text-gray-700 rounded-md shadow-sm">
+                                <InlineStack gap="100" blockAlign="center">
+                                  <ChatIcon className="w-5 h-5" />
+                                  <Text className="text-sm font-medium">
+                                    {getCommentStatus(data.blog_commentable)}
+                                  </Text>
+                                </InlineStack>
+                              </Box>
+                            </InlineStack>
+                          )}
+                        </BlockStack>
+                      </Box>
+                      <BlockStack gap="800">
+                        <Box className="pt-6">
+                          <SEOSection data={blogSEOData} />
+                        </Box>
+                        {data.blog_tags && (
+                          <Box className="border-t border-gray-200 pt-6">
+                            <TagsList tags={data.blog_tags} />
+                          </Box>
+                        )}
+                      </BlockStack>
+                    </Box>
+                  </Box>
+                </div>
+              )}
+              {data.article_title && (
+                <div className={articleContainerClasses}>
+                  <Box 
+                    background="bg-surface"
+                    borderRadius="500" 
+                    padding="400"
+                    shadow="large"
+                  >
+                    <BlockStack gap="500">
+                      <InlineStack gap="300" align="space-between">
+                        <Box className="flex items-center gap-4 px-6 py-3 bg-blue-50 border border-blue-200 text-blue-700 rounded-md shadow-sm">
+                          <InlineStack gap="100" blockAlign="center">
+                            <ChatIcon className="w-5 h-5" />
+                            <Text className="text-sm font-medium">Blog Post</Text>
+                          </InlineStack>
+                        </Box>
+                      </InlineStack>
+                      <Text 
+                        variant="heading3xl" 
+                        as="h1" 
+                        fontWeight="bold"
+                        className="text-gray-900 leading-tight"
+                      >
+                        {data.article_title}
+                      </Text>
+                      <InlineStack gap="400" align="center" wrap className="pt-2">
+                        {data.article_author && (
+                          <AuthorDisplay author={data.article_author} />
+                        )}
+                        <MetaInformation data={data} />
+                      </InlineStack>
+                    </BlockStack>
+                  </Box>
+                  <ContentSection data={data} />
+                  <SummarySection data={data} />
+                  <SEOSection data={articleSEOData} />
+                  {data.article_tags && (
+                    <Box paddingBlockStart="600" className="border-t border-gray-200">
+                      <TagsList tags={data.article_tags} />
+                    </Box>
+                  )}
+                </div>
+              )}
+            </div>
+          </BlockStack>
+        </div>
+        {isPreviewMode &&
+          <FooterBar
+            content={content} 
+            onAction={onAction}
+            onCancel={onCancel}
+            eventType='PUBLISH'
+            contentType={contentType}
+            loading={loading}
+          />
+        }
+      </Card>
+    </div>
+  );
+};
+
+const AuthorDisplay = ({ author }) => (
+  <InlineStack gap="300" align="center">
+    <Avatar 
+      customer 
+      size="medium" 
+      name={author}
+      className="border-2 border-white shadow-md ring-2 ring-gray-100" 
+    />
+    <BlockStack gap="100">
+      <Text variant="bodyLg" fontWeight="semibold" className="text-gray-900">{author}</Text>
+      <Text variant="bodySm" className="text-gray-500">Author</Text>
+    </BlockStack>
+  </InlineStack>
+);
+
+const MetaInformation = ({ data }) => (
+  <>
+    {data.article_published !== undefined && (
+      <InlineStack gap="300" align="center">
+        <Divider orientation="vertical" />
+        <StatusBadge 
+          status={data.article_published ? 'success' : 'warning'}
+          icon={data.article_published ? CheckIcon : ClockIcon}
+        >
+          {data.article_published ? 'Published' : 'Draft'}
+        </StatusBadge>
+      </InlineStack>
+    )}
+  </>
+);
+
+const ContentSection = ({ data }) => (
+  <BlockStack gap="600">
+    {data.article_body_html && (
+      <Card 
+        background="bg-surface"
+        padding={{ xs: '400', md: '600' }}
+        shadow="medium"
+      >
+        <div 
+          className="prose prose-lg max-w-none
+            prose-headings:font-semibold 
+            prose-h1:text-3xl prose-h2:text-2xl
+            prose-a:text-blue-600 hover:prose-a:text-blue-800
+            prose-img:rounded-xl prose-img:shadow-lg
+            prose-blockquote:border-l-4 prose-blockquote:border-blue-500
+            prose-pre:bg-gray-50 prose-pre:border prose-pre:border-gray-200
+            prose-code:text-blue-600 prose-code:bg-blue-50 prose-code:px-1 prose-code:rounded
+            prose-strong:text-gray-900"
+          dangerouslySetInnerHTML={{
+            __html: formatContent(data.article_body_html),
+          }}
+        />
+      </Card>
+    )}
+  </BlockStack>
+);
+
+const SEOSection = ({ data }) => (
+  <BlockStack gap="600">
+    {(data?.page_title) && (
+      <Card background="bg-surface-strong">
+        <Box padding="400">
+          <BlockStack gap="400">
+            <InlineStack gap="200" align="center">
+              <SearchIcon className="w-5 h-5" />
+              <Text variant="headingMd">SEO & Metadata</Text>
+            </InlineStack>
+
+            <div className="grid md:grid-cols-2 gap-4">
+              {data?.page_title && (
+                <Box padding="300" background="bg-surface" borderRadius="200">
+                  <BlockStack gap="200">
+                    <Text variant="bodySm" tone="subdued">Page Title</Text>
+                    <Text variant="bodyMd">{data?.page_title}</Text>
+                  </BlockStack>
+                </Box>
+              )}
+              {data?.meta_description && (
+                <Box padding="300" background="bg-surface" borderRadius="200">
+                  <BlockStack gap="200">
+                    <Text variant="bodySm" tone="subdued">Meta Description</Text>
+                    <Text variant="bodyMd">{data?.meta_description}</Text>
+                  </BlockStack>
+                </Box>
+              )}
+              {data?.handle && (
+                <Box padding="300" background="bg-surface" borderRadius="200">
+                  <BlockStack gap="200">
+                    <Text variant="bodySm" tone="subdued">URL Handle</Text>
+                    <Text variant="bodyMd">{data?.handle}</Text>
+                  </BlockStack>
+                </Box>
+              )}
+            </div>
+          </BlockStack>
+        </Box>
+      </Card>
+    )}
+  </BlockStack>
+);
+
+const SummarySection = ({ data }) => (
+  <BlockStack gap="600">
+    {data.article_summary_html && (
+      <SidebarCard
+        title="Quick Summary"
+        content={
+          <div 
+            className="prose prose-sm"
+            dangerouslySetInnerHTML={{
+              __html: formatContent(data.article_summary_html),
+            }}
+          />
+        }
+      />
+    )}
+  </BlockStack>
+);
+
+const SidebarCard = ({ title, content }) => (
+  <Card 
+    background="bg-surface"
+    padding="500"
+    shadow="medium"
+  >
+    <BlockStack gap="400">
+      <Text variant="headingMd" as="h3">{title}</Text>
+      {content}
+    </BlockStack>
+  </Card>
+);
+
+const getCommentStatus = (status) => {
+  const statusMap = {
+    'AUTO_PUBLISHED': 'Comments Enabled',
+    'CLOSED': 'Comments Disabled',
+    'MODERATED': 'Comments Moderated'
+  };
+  return statusMap[status] || status;
+};
+
+const ProductDisplay = ({ 
+  content, 
+  onAction, 
+  onCancel, 
+  contentType, 
+  isPreviewMode, 
+  loading, 
+  isFullScreen 
+}) => {
+  const data = content?.output;
   const containerClasses = isFullScreen 
-    ? "w-full max-w-none" 
-    : "w-full max-w-3xl mx-auto";
+    ? "w-full max-w-none h-full" 
+    : "w-full max-w-3xl mx-auto h-full";
 
   const gridClasses = isFullScreen
-    ? "grid grid-cols-1 lg:grid-cols-12 gap-6"
-    : "grid grid-cols-1 gap-6";
+    ? "grid grid-cols-1 gap-6"
+    : "grid grid-cols-1 gap-6 h-full";
 
   const imageColumnClasses = isFullScreen
-    ? "lg:col-span-7"
+    ? "lg:col-span-1"
     : "col-span-1";
 
   const infoColumnClasses = isFullScreen
     ? "lg:col-span-5"
     : "col-span-1";
-
-  const hasProductData = data?.title || data?.product_type || data?.status;
-  const hasVariantData = data?.variants?.[0];
-  const hasMetaData = data?.page_title || data?.meta_description;
+     
+  const hasProductData = data?.title || data?.product_type || data?.status; 
+  const hasMetaData = data?.page_title || data?.meta_description; 
 
   return (
     <Card padding="600">
@@ -389,10 +574,15 @@ const ProductDisplay = ({ data, isFullScreen }) => {
         <BlockStack gap="600">
           {hasProductData && (
             <Box background="bg-surface-strong" borderRadius="300" padding="600">
-              <BlockStack gap="400">
+              <BlockStack gap="500">
                 {data.title && (
                   <Text variant="heading3xl" as="h1" fontWeight="bold">
                     {data.title}
+                  </Text>
+                )}
+                {data.price && (
+                  <Text variant="heading2xl" as="p" fontWeight="bold">
+                    {formatCurrency(data.price)}
                   </Text>
                 )}
                 {(data.product_type || data.status) && (
@@ -404,79 +594,34 @@ const ProductDisplay = ({ data, isFullScreen }) => {
               </BlockStack>
             </Box>
           )}
-
-          {(data.images?.length > 0 || hasVariantData) && (
-            <div className={gridClasses}>
-              {data.images?.length > 0 && (
-                <div className={imageColumnClasses}>
-                  <Box background="bg-surface-strong" borderRadius="300" padding="400">
-                    <ImageCarousel images={data.images} />
-                  </Box>
-                </div>
-              )}
-
-              {hasVariantData && (
-                <div className={infoColumnClasses}>
-                  <BlockStack gap="400">
-                    <Card background="bg-surface-strong">
-                      <Box padding="400">
-                        <BlockStack gap="300">
-                          <InlineStack gap="200" align="baseline">
-                            {hasVariantData.price && (
-                              <Text variant="heading2xl" as="p" fontWeight="bold">
-                                {formatCurrency(hasVariantData.price)}
-                              </Text>
-                            )}
-                            {hasVariantData.compare_at_price && (
-                              <Text variant="bodyLg" tone="subdued" textDecorationLine="line-through">
-                                {formatCurrency(hasVariantData.compare_at_price)}
-                              </Text>
-                            )}
-                          </InlineStack>
-                          
-                          {(hasVariantData.weight || hasVariantData.sku) && (
-                            <div className="grid grid-cols-2 gap-3">
-                              {hasVariantData.weight && (
-                                <MetricCard
-                                  icon={MeasurementWeightIcon}
-                                  label="Weight"
-                                  value={`${hasVariantData.weight} ${hasVariantData.weight_unit || 'kg'}`}
-                                />
-                              )}
-                              {hasVariantData.sku && (
-                                <MetricCard
-                                  icon={MoneyFilledIcon}
-                                  label="SKU"
-                                  value={hasVariantData.sku}
-                                />
-                              )}
-                            </div>
-                          )}
-                        </BlockStack>
-                      </Box>
-                    </Card>
-
-                    {data.body_html && (
-                      <Card background="bg-surface-strong">
-                        <Box padding="400">
-                          <BlockStack gap="300">
-                            <Text variant="headingMd" as="h3">Product Description</Text>
-                            <div 
-                              className="prose prose-sm max-w-none"
-                              dangerouslySetInnerHTML={{
-                                __html: formatContent(data.body_html),
-                              }}
-                            />
-                          </BlockStack>
-                        </Box>
-                      </Card>
-                    )}
-                  </BlockStack>
-                </div>
-              )}
+          <div className={gridClasses}>
+            {data.images?.length > 0 && (
+              <div className={imageColumnClasses}>
+                <Box background="bg-surface-strong" borderRadius="300" padding="400">
+                  <ImageCarousel images={data.images} />
+                </Box>
+              </div>
+            )}
+            <div className={infoColumnClasses}>
+              <BlockStack gap="400">
+                {data.body_html && (
+                  <Card background="bg-surface-strong">
+                    <Box padding="400">
+                      <BlockStack gap="300">
+                        <Text variant="headingMd" as="h3">Product Description</Text>
+                        <div 
+                          className="prose prose-sm max-w-none"
+                          dangerouslySetInnerHTML={{
+                            __html: formatContent(data.body_html),
+                          }}
+                        />
+                      </BlockStack>
+                    </Box>
+                  </Card>
+                )}
+              </BlockStack>
             </div>
-          )}
-
+          </div>
           {hasMetaData && (
             <Card background="bg-surface-strong">
               <Box padding="400">
@@ -485,7 +630,6 @@ const ProductDisplay = ({ data, isFullScreen }) => {
                     <SearchIcon className="w-5 h-5" />
                     <Text variant="headingMd">SEO & Metadata</Text>
                   </InlineStack>
-                  
                   <div className="grid md:grid-cols-2 gap-4">
                     {data.page_title && (
                       <Box padding="300" background="bg-surface" borderRadius="200">
@@ -495,7 +639,6 @@ const ProductDisplay = ({ data, isFullScreen }) => {
                         </BlockStack>
                       </Box>
                     )}
-                    
                     {data.meta_description && (
                       <Box padding="300" background="bg-surface" borderRadius="200">
                         <BlockStack gap="200">
@@ -504,22 +647,91 @@ const ProductDisplay = ({ data, isFullScreen }) => {
                         </BlockStack>
                       </Box>
                     )}
+                    {data?.handle && (
+                      <Box padding="300" background="bg-surface" borderRadius="200">
+                        <BlockStack gap="200">
+                          <Text variant="bodySm" tone="subdued">URL Handle</Text>
+                          <Text variant="bodyMd">{data?.handle}</Text>
+                        </BlockStack>
+                      </Box>
+                    )}
                   </div>
                 </BlockStack>
               </Box>
             </Card>
           )}
-
           {data.tags && <TagsList tags={data.tags} />}
         </BlockStack>
       </div>
+      {isPreviewMode &&
+        <FooterBar
+          content={content} 
+          onAction={onAction}
+          onCancel={onCancel}
+          eventType='PUBLISH'
+          contentType={contentType}
+          loading={loading}
+        />
+      }
     </Card>
   );
 };
 
-const renderProductContent = (data, isFullScreen) => <ProductDisplay data={data} isFullScreen={isFullScreen} />;
-const renderArticleContent = (data, isFullScreen) => <BlogArticleDisplay data={data} isFullScreen={isFullScreen} />;
-const renderBlogContent = (data, isFullScreen) => <BlogArticleDisplay data={data} isFullScreen={isFullScreen} />;
+const renderProductContent = (
+  content, 
+  isFullScreen,
+  onAction, 
+  onCancel, 
+  contentType, 
+  isPreviewMode,
+  loading
+) => 
+  <ProductDisplay 
+    content={content} 
+    isFullScreen={isFullScreen} 
+    onAction={onAction} 
+    onCancel={onCancel} 
+    contentType={contentType} 
+    isPreviewMode={isPreviewMode} 
+    loading={loading} 
+  />;
+
+const renderArticleContent = (
+  content, 
+  isFullScreen, 
+  onAction, 
+  onCancel, 
+  contentType, 
+  isPreviewMode,
+  loading 
+  ) => 
+  <BlogArticleDisplay 
+    content={content} 
+    isFullScreen={isFullScreen} 
+    onAction={onAction} 
+    onCancel={onCancel} 
+    contentType={contentType} 
+    isPreviewMode={isPreviewMode} 
+    loading={loading} 
+  />;
+const renderBlogContent = (
+  content, 
+  isFullScreen, 
+  onAction, 
+  onCancel, 
+  contentType, 
+  isPreviewMode,
+  loading 
+) => 
+  <BlogArticleDisplay 
+    content={content} 
+    isFullScreen={isFullScreen} 
+    onAction={onAction} 
+    onCancel={onCancel} 
+    contentType={contentType} 
+    isPreviewMode={isPreviewMode} 
+    loading={loading} 
+  />;
 
 interface ContentRenderedViewProps {
   content: CONTENT;
@@ -547,9 +759,8 @@ const ContentRenderedView = React.memo<ContentRenderedViewProps>(({
   layoutMode
 }) => {
   const containerClasses = isFullScreen
-    ? "bg-white mt-6 mx-6 rounded-md max-h-[350vh] overflow-auto w-full"
-    : "bg-white mt-6 mx-6 rounded-md max-h-[350vh] overflow-auto w-full";
-
+    ? "bg-white mt-6 rounded-md w-full h-full"
+    : "bg-white mt-6 rounded-md w-full h-full";
   const renderedContent = useMemo(() => {
     if (!content || !content?.output || !contentType) {
       return (
@@ -560,11 +771,35 @@ const ContentRenderedView = React.memo<ContentRenderedViewProps>(({
     }
     switch (contentType) {
       case ContentCategory.PRODUCT:
-        return renderProductContent(content?.output, isFullScreen);
+        return renderProductContent(
+          content, 
+          isFullScreen, 
+          onAction, 
+          onCancel, 
+          contentType, 
+          isPreviewMode, 
+          loading
+        );
       case ContentCategory.BLOG:
-        return renderBlogContent(content?.output, isFullScreen);   
+        return renderBlogContent(
+          content, 
+          isFullScreen, 
+          onAction, 
+          onCancel, 
+          contentType, 
+          isPreviewMode, 
+          loading
+        );   
       case ContentCategory.ARTICLE:
-        return renderArticleContent(content?.output, isFullScreen);
+        return renderArticleContent(
+          content, 
+          isFullScreen, 
+          onAction, 
+          onCancel, 
+          contentType, 
+          isPreviewMode, 
+          loading
+        );
       default:
         return (
           <Box padding="400" background="bg-surface-caution">
@@ -572,32 +807,20 @@ const ContentRenderedView = React.memo<ContentRenderedViewProps>(({
           </Box>
         );
     }
-  }, [content, contentType, isFullScreen]);
-
+  }, [content, onAction, onCancel, contentType, isFullScreen, loading, isPreviewMode]);
   return (
-      <div className={containerClasses}>
-        <TopBar 
-          content={content} 
-          isFullScreen={isFullScreen}
-          onOpenEditMode={onOpenEditMode} 
-          onToggleFullScreen={onToggleFullScreen} 
-          layoutMode={layoutMode}
-          isPreviewMode={isPreviewMode}
-        />
-        {renderedContent}
-        {isPreviewMode && content?.output &&
-          <FooterBar
-            content={content} 
-            onAction={onAction}
-            onCancel={onCancel}
-            eventType='PUBLISH'
-            contentType={contentType}
-            loading={loading}
-          />
-        }
-      </div>
-    );
-  }
+    <div className={containerClasses}>
+      <TopBar 
+        content={content} 
+        isFullScreen={isFullScreen}
+        onOpenEditMode={onOpenEditMode} 
+        onToggleFullScreen={onToggleFullScreen} 
+        layoutMode={layoutMode}
+        isPreviewMode={isPreviewMode}
+      />
+      {renderedContent}
+    </div>
+  )}
 );
 
 ContentRenderedView.displayName = "ContentRenderedView";

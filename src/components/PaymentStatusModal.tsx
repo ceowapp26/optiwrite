@@ -71,7 +71,7 @@ export default function PaymentStatusModal() {
     setIsVisible(false);
     if (redirect) {
       redirect.dispatch(Redirect.Action.APP, {
-        path: `/shops/shop=${shop}?${queryParams}`,
+        path: `/versions/light?${queryParams}`,
       });
     }
   };

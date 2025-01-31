@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { Content } from '@prisma/client';
+import { ContentCategory } from '@/types/content';
 import { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 
 interface ContentUpdatePayload {
@@ -143,18 +144,21 @@ class ContentSubscriptionManager {
         .select('*')
         .eq('id', contentId)
         .single();
+
       if (!existingContent) {
         throw new Error('Content not found');
       }
+      const outputUpdates = {
+        ...existingContent.output,
+        ...updates
+      };
       const mergedUpdates = {
-        ...updates,
         output: {
-          ...existingContent.output,
+          ...outputUpdates,
           images: [
             ...(existingContent.output?.images || []),
-            ...(updates.output?.images || [])
+            ...(updates?.images || [])
           ].filter((value, index, self) => self.indexOf(value) === index),
-          title: updates.title,
         },
         updatedAt: new Date().toISOString(),
         lastEditedAt: new Date().toISOString()

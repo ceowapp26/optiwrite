@@ -1,10 +1,12 @@
 import { initializeShopify } from "@/lib/shopify";
 import { GenericAPIErrorHandler } from '@/utils/api';
-import { handleShopifyInitError, handleContentDeleteError } from '@/utils/api/customAPIErrorHandlers';
+import { handleShopifyInitError } from '@/utils/api/customAPIErrorHandlers';
 import { ShopifySessionManager } from '@/utils/storage';
 import { ContentService } from '@/utils/content/contentService';
+import { ContentOperations } from '@/utils/content/contentOperation';
 import { ContentManager } from "@/utils/content";
 import { ContentCategory } from "@/types/content";
+import { shopify } from '@/lib/shopify';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,76 +22,43 @@ export async function PUT(
         headers: { "Content-Type": "application/json" }
       });
     }
-    const { shopName, accessToken, category, ...updateData } = await req.json();
-    const shopify = initializeShopify(shopName, accessToken);
+    const { shopName, accessToken, updatedContent } = await req.json();
     const shop = await ShopifySessionManager.findShopByName(shopName);
     if (!shop) {
       throw new Error("No shop found");
     }
-    const contentItem = await ContentManager.getContentById(contentId);
+    const contentItem = await ContentManager.getContentByShopifyId(contentId);
     if (!contentItem) {
       return new Response(JSON.stringify({ error: "Content not found in database" }), {
         status: 404,
         headers: { "Content-Type": "application/json" }
       });
     }
-    let updatedContent;
-    let contentData;
+    const session = await ShopifySessionManager.getSessionFromStorageByAccessToken(accessToken);
+    if (!session) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid or expired session' }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+    }
+    const client = new shopify.clients.Graphql({ session });
+    const contentService = new ContentService({ client, shopId: shop.id, shopName });
     switch (contentItem.category) {
       case ContentCategory.PRODUCT:
-        updatedContent = await shopify.product.update(contentId, updateData);
-        contentData = {
-          shopifyId: updatedContent.admin_graphql_api_id,
-          contentId: updatedContent.id.toString(),
-          title: updatedContent.title,
-          description: updatedContent.body_html,
-          vendor: updatedContent.vendor,
-          handle: updatedContent.handle,
-          status: updatedContent.status,
-          productType: updatedContent.product_type,
-          price: parseFloat(updatedContent.variants[0]?.price || '0'),
-          compareAtPrice: parseFloat(updatedContent.variants[0]?.compare_at_price || '0'),
-          tags: Array.isArray(updatedContent.tags) 
-            ? updatedContent.tags
-            : updatedContent.tags?.split(',').map(tag => tag.trim()) || [],
-          weight: parseFloat(updatedContent.variants[0]?.weight || '0'),
-          weightUnit: updatedContent.variants[0]?.weight_unit || 'kg',
-          inventoryQuantity: parseInt(updatedContent.variants[0]?.inventory_quantity || '0'),
-          sku: updatedContent.variants[0]?.sku || '',
-          images: updatedContent.images?.map(image => image.src) || [],
-          featuredImage: updatedContent.image?.src || null,
-        };
+        await contentService.updateContent(contentItem.category, updatedContent, contentId);
         break;
       case ContentCategory.BLOG:
-        updatedContent = await shopify.article.update(updateData.blogId, contentId, updateData);
-        contentData = {
-          shopifyId: updatedContent.admin_graphql_api_id,
-          contentId: updatedContent.id.toString(),
-          title: updatedContent.title,
-          description: updatedContent.body_html,
-          handle: updatedContent.handle,
-          author: updatedContent.author,
-          tags: Array.isArray(updatedContent.tags)
-            ? updatedContent.tags
-            : updatedContent.tags?.split(',').map(tag => tag.trim()) || [],
-          featuredImage: updatedContent.image?.src || null,
-          blogId: updateData.blogId
-        };
+        await contentService.updateContent(contentItem.category, updatedContent, contentId);
+      case ContentCategory.ARTICLE:
+        await contentService.updateContent(contentItem.category, updatedContent, contentId, updatedContent?.output?.blog_id);
         break;
-
       default:
         throw new Error("Invalid category specified");
     }
-    const updatedDbContent = await ContentManager.updateContent({
-      shopId: shop.id,
-      category,
-      output: contentData,
-      publishedAt: updatedContent.published_at ? new Date(updatedContent.published_at) : undefined
-    });
-
     return new Response(JSON.stringify({
-      shopify: updatedContent,
-      database: updatedDbContent
+      success: true,
     }), {
       status: 200,
       headers: { "Content-Type": "application/json" }
@@ -120,15 +89,27 @@ export async function GET(
         headers: { "Content-Type": "application/json" }
       });
     }
-    const shopify = initializeShopify(shopName, accessToken);
+    const session = await ShopifySessionManager.getSessionFromStorageByAccessToken(accessToken);
+    if (!session) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid or expired session' }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+    }
+    const client = new shopify.clients.Graphql({ session });
+    const contentOperations = new ContentOperations(client);
     let shopifyContent;
     switch (contentItem.category) {
       case ContentCategory.PRODUCT:
-        shopifyContent = await shopify.product.get(contentId);
+        shopifyContent = await contentOperations.retrieveProduct(contentId);
         break;
       case ContentCategory.BLOG:
-        const { blogId } = await req.json();
-        shopifyContent = await shopify.article.get(blogId, contentId);
+        shopifyContent = await contentOperations.retrieveBlog(contentId);
+        break;
+      case ContentCategory.ARTICLE:
+        shopifyContent = await contentOperations.retrieveArticle(contentId);
         break;
       default:
         throw new Error("Invalid category specified");
@@ -159,12 +140,6 @@ export async function DELETE(
         headers: { "Content-Type": "application/json" } 
       });
     }
-    let shopify;
-    try {
-      shopify = await initializeShopify(shopName, accessToken);
-    } catch (error) {
-      return handleShopifyInitError(error);
-    }
     const shop = await ShopifySessionManager.findShopByName(shopName);
     if (!shop) {
       return new Response(JSON.stringify({ error: 'Shop not found' }), {
@@ -172,7 +147,17 @@ export async function DELETE(
         headers: { "Content-Type": "application/json" }
       });
     }
-    const contentService = new ContentService(shopify, shop.id, shopName);
+    const session = await ShopifySessionManager.getSessionFromStorageByAccessToken(accessToken);
+    if (!session) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid or expired session' }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+    }
+    const client = new shopify.clients.Graphql({ session });
+    const contentService = new ContentService({ client, shopId: shop.id, shopName });
     try {
       await contentService.deleteContent(contentId);
       return new Response(JSON.stringify({ message: "Content deleted successfully" }), { 
@@ -180,16 +165,16 @@ export async function DELETE(
         headers: { "Content-Type": "application/json" } 
       });
     } catch (error) {
-      return handleContentDeleteError(error);
+      console.error('Content deletion error:', error);
+      return new Response(JSON.stringify({
+        error: 'Failed to delete content',
+        details: error instanceof Error ? error.message : 'Unknown operation error'
+      }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" }
+      });
     }
   } catch (error: any) {
     return GenericAPIErrorHandler.handleAPIError(error);
   }
-}
-
-function calculateCompareAtPrice(price: number, profit: number): string | undefined {
-  if (typeof price === 'number' && typeof profit === 'number') {
-    return (price + profit).toFixed(2);
-  }
-  return undefined;
 }

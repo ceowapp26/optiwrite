@@ -3049,6 +3049,7 @@ export enum ContentCategory {
   BLOG = 'BLOG',
   ARTICLE = 'ARTICLE',
   PRODUCT = 'PRODUCT',
+  BLOGARTICLE = 'BLOGARTICLE',
   TUTORIAL = 'TUTORIAL',
   CASE_STUDY = 'CASESTUDY'
 }
@@ -3068,10 +3069,6 @@ export interface PRODUCT {
   options: ProductOption[]; 
   variants: ProductVariant[]; 
   status: 'active' | 'archived' | 'draft';
-  seo: {
-    page_title: string;
-    meta_description: string;
-  }
 }
 
 type ProductVariantInventoryPolicy = 'deny' | 'continue';

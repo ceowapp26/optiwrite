@@ -33,19 +33,40 @@ export class ShopApiService {
     };
   }
 
+  public static getState(): IApiState {
+    return this.state;
+  }
+
+  private static resetState() {
+    this.state = {
+      loading: false,
+      error: null,
+      data: null,
+      progress: 0,
+      status: 'idle'
+    };
+    this.cancelTokenSource = null;
+  }
+
   private static createCancelToken() {
     this.cancelTokenSource = axios.CancelToken.source();
     return this.cancelTokenSource;
   }
 
-  public static async getList(accessToken: string, shopName: string, page?: number, limit?: number): Promise<{ products: any[], blogs: any[] }> {
+  public static async getList(
+    accessToken: string, 
+    shopName: string, 
+    pagination?: number, 
+    limit?: number
+  ): Promise<{ products: any[], blogs: any[], articles: any[], state: IApiState }> {
+    this.resetState();
     try {
       this.setState({ loading: true, error: null, status: 'loading' });
       const source = this.createCancelToken();
       const response = await axios.get(
         `${this.baseURL}/contents`,
         {
-          params: { accessToken, shopName, page, limit },
+          params: { accessToken, shopName, pagination , limit },
           cancelToken: source.token
         }
       );
@@ -70,7 +91,8 @@ export class ShopApiService {
         products,
         blogs,
         articles,
-        total: response?.data?.total
+        total: response?.data?.total,
+        state: this.getState()
       };
 
     } catch (error) {
@@ -87,6 +109,7 @@ export class ShopApiService {
   }
 
   public static async getSingle(accessToken: string, shopName: string, contentId: string): Promise<any> {
+    this.resetState();
     try {
       this.setState({ loading: true, error: null, status: 'loading' });
       const source = this.createCancelToken();
@@ -103,16 +126,23 @@ export class ShopApiService {
         status: 'success'
       });
       toast.success('Content fetched successfully');
-      return response.data;
-
+      return {
+        data: response.data,
+        state: this.getState()
+      };
     } catch (error) {
       this.handleError(error, 'Fetching content');
+      return {
+        data: null,
+        state: this.getState()
+      };
     } finally {
       this.setState({ loading: false });
     }
   }
 
   public static async delete(accessToken: string, shopName: string, contentId: string): Promise<any> {
+    this.resetState();
     try {
       this.setState({ loading: true, error: null, status: 'loading' });
       const source = this.createCancelToken();
@@ -127,16 +157,23 @@ export class ShopApiService {
         status: 'success'
       });
       toast.success('Content deleted successfully');
-      return response.data;
-
+      return {
+        data: response.data,
+        state: this.getState()
+      };
     } catch (error) {
       this.handleError(error, 'Deleting content');
+      return {
+        data: null,
+        state: this.getState()
+      };
     } finally {
       this.setState({ loading: false });
     }
   }
 
   public static async update(accessToken: string, shopName: string, contentId: string, updatedContent: CONTENT): Promise<any> {
+    this.resetState();
     try {
       this.setState({ loading: true, error: null, status: 'loading' });
       const source = this.createCancelToken();
@@ -152,11 +189,16 @@ export class ShopApiService {
         data: response.data,
         status: 'success'
       });
-      toast.success('Content updated successfully');
-      return response.data;
-
+      return {
+        data: response.data,
+        state: this.getState()
+      };
     } catch (error) {
       this.handleError(error, 'Updating content');
+      return {
+        data: null,
+        state: this.getState()
+      };
     } finally {
       this.setState({ loading: false });
     }
@@ -168,6 +210,7 @@ export class ShopApiService {
     content: CONTENT,
     category?: string
   ): Promise<any> {
+    this.resetState();
     try {
       this.setState({ 
         loading: true, 
@@ -187,15 +230,15 @@ export class ShopApiService {
           }
         }
       );
-
       this.setState({ 
         data: response.data,
         status: 'success',
         progress: 100
       });
-      toast.success('Content published successfully');
-      return response.data;
-
+      return {
+        data: response.data,
+        state: this.getState()
+      };
     } catch (error) {
       this.handleError(error, 'Publishing content');
     } finally {
@@ -203,9 +246,8 @@ export class ShopApiService {
     }
   }
 
-  private static handleError(error: any, action: string) {
+   private static handleError(error: any, action: string) {
     if (axios.isCancel(error)) {
-      toast.info(`${action} cancelled`);
       this.setState({ 
         error: 'Operation cancelled',
         status: 'cancelled'
@@ -226,11 +268,11 @@ export class ShopApiService {
   public static cancelOperation() {
     if (this.cancelTokenSource) {
       this.cancelTokenSource.cancel('Operation cancelled by user');
-      toast.info('Operation cancelled');
       this.setState({ 
         status: 'cancelled',
         loading: false 
       });
+      this.cancelTokenSource = null;
     }
   }
 
@@ -238,5 +280,3 @@ export class ShopApiService {
     return this.state;
   }
 }
-
-

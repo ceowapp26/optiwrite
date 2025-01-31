@@ -3,6 +3,8 @@ import { Button, Icon, Popover, Box, Text, Badge, Card, BlockStack, InlineStack,
 import { NotificationIcon, AlertCircleIcon, CheckCircleIcon, InfoIcon } from '@shopify/polaris-icons';
 import { Notification, FeatureFlag } from '@prisma/client';
 import { formatDistanceToNow } from 'date-fns';
+import { DateTime } from 'luxon';
+import { useTheme } from 'next-themes';
 import { subscriptionManager } from '@/actions/notification';
 import NotificationModal from './NotificationModal';
 import FeatureFlagModal from './FeatureFlagModal';
@@ -10,7 +12,7 @@ import styled from 'styled-components';
 
 const NotificationWrapper = styled.div`
   position: relative;
-  z-index: 999;
+  z-index: 30;
   width: 100%;
   height: 100%;
   transition: transform 0.2s ease;
@@ -44,7 +46,7 @@ const NotificationList = styled.div`
 
 const BadgeWrapper = styled.div`
   position: absolute;
-  z-index: 999;
+  z-index: 30;
   bottom: 14px;
   left: 14px;
   animation: pulse 2s infinite;
@@ -59,11 +61,11 @@ const BadgeWrapper = styled.div`
 const getNotificationIcon = (type: string) => {
   switch (type) {
     case 'success':
-      return <Icon source={CheckCircleIcon} color="success" />;
+      return <CheckCircleIcon className="w-5 h-5 fill-green-500" />;
     case 'warning':
-      return <Icon source={AlertCircleIcon} color="warning" />;
+      return <AlertCircleIcon className="w-5 h-5 fill-yellow-500" />;
     default:
-      return <Icon source={InfoIcon} color="highlight" />;
+      return <InfoIcon className="w-5 h-5 fill-blue-500" />;
   }
 };
 
@@ -72,6 +74,7 @@ interface NotificationBellProps {
 }
 
 const NotificationBell = ({ shopName }: NotificationBellProps) => {
+  const { theme } = useTheme();
   const [popoverActive, setPopoverActive] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [featureFlags, setFeatureFlags] = useState<FeatureFlag[]>([]);
@@ -162,6 +165,31 @@ const NotificationBell = ({ shopName }: NotificationBellProps) => {
     };
   }, [shopName]);
 
+  const getBackgroundColor = (isRead: boolean, isDark: boolean) => {
+    if (isDark) {
+      return isRead ? 'rgba(45, 45, 45, 1)' : 'rgba(0, 55, 95, 0.8)';
+    }
+    return isRead ? 'rgba(241, 241, 241, 1)' : 'rgba(220, 240, 255, 1)';
+  };
+
+  const getHoverBackgroundColor = (isRead: boolean, isDark: boolean) => {
+    if (isDark) {
+      return isRead ? 'rgba(55, 55, 55, 1)' : 'rgba(0, 65, 110, 0.9)';
+    }
+    return isRead ? 'rgba(230, 230, 230, 1)' : 'rgba(200, 230, 255, 1)';
+  };
+
+  const getBorderColor = (isDark: boolean) => {
+    return isDark ? 'rgba(75, 75, 75, 1)' : 'var(--p-border-subdued)';
+  };
+
+  const getTextColor = (isDark: boolean, isSubdued: boolean = false) => {
+    if (isDark) {
+      return isSubdued ? 'rgba(175, 175, 175, 1)' : 'rgba(255, 255, 255, 0.95)';
+    }
+    return isSubdued ? 'var(--p-text-subdued)' : 'var(--p-text)';
+  };
+
   const activator = (
     <NotificationWrapper>
       <div
@@ -196,9 +224,9 @@ const NotificationBell = ({ shopName }: NotificationBellProps) => {
               <NotificationList>
                 {notifications.length === 0 ? (
                   <Box padding="400">
-                    <BlockStack align="center" gap="200">
-                      <Icon source={NotificationIcon} color="subdued" />
-                      <Text alignment="center" color="subdued">No notifications yet</Text>
+                    <BlockStack inlineAlign="center" align="center" gap="200">
+                      <NotificationIcon className="w-5 h-5" />
+                      <Text alignment="center" tone="subdued">No notifications yet</Text>
                     </BlockStack>
                   </Box>
                 ) : (
@@ -208,39 +236,39 @@ const NotificationBell = ({ shopName }: NotificationBellProps) => {
                       onClick={() => handleNotificationClick(notification)}                      
                       style={{
                         cursor: 'pointer',
-                        backgroundColor: notification.isRead
-                          ? 'rgba(241, 241, 241, 1)'
-                          : 'rgba(220, 240, 255, 1)',
+                        backgroundColor: getBackgroundColor(notification.isRead, theme === 'dark'),
                         padding: '16px',
                         borderRadius: '8px',
-                        border: '1px solid var(--p-border-subdued)',
+                        border: `1px solid ${getBorderColor(theme === 'dark')}`,
                         transition: 'all 0.2s ease',
                         marginBottom: '12px',
                         boxShadow: 'none',
                       }}
                       onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = notification.isRead
-                          ? 'rgba(230, 230, 230, 1)' 
-                          : 'rgba(200, 230, 255, 1)'; 
+                        e.currentTarget.style.backgroundColor = getHoverBackgroundColor(
+                          notification.isRead,
+                          theme === 'dark'
+                        );
                         e.currentTarget.style.boxShadow = 'var(--p-shadow-button)';
                       }}
                       onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = notification.isRead
-                          ? 'rgba(241, 241, 241, 1)' 
-                          : 'rgba(220, 240, 255, 1)'; 
+                        e.currentTarget.style.backgroundColor = getBackgroundColor(
+                          notification.isRead,
+                          theme === 'dark'
+                        );
                         e.currentTarget.style.boxShadow = 'none';
                       }}
                     >
-                      <InlineStack align="space-between" blockAlign="center">
+                      <InlineStack align="space-between" blockAlign="center" wrap={false} gap="300">
                         <BlockStack gap="200">
                           <Text variant="bodyMd" fontWeight="bold">
                             {notification.title}
                           </Text>
-                          <Text variant="bodySm" color="subdued">
+                          <Text variant="bodySm" tone="subdued">
                             {notification.message}
                           </Text>
-                          <Text variant="bodySm" color="subdued">
-                            {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
+                          <Text variant="bodySm" tone="subdued">
+                            {formatDistanceToNow(DateTime.fromISO(notification.createdAt, { zone: 'utc' }).toLocal().toJSDate(), { addSuffix: true })}
                           </Text>
                         </BlockStack>
                         <BlockStack>

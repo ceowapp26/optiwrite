@@ -85,7 +85,7 @@ model AssociatedUser {
   createdAt          DateTime                     @default(now())
   updatedAt          DateTime                     @updatedAt
   onlineAccessInfo   OnlineAccessInfo?            @relation("accessInfoAssociatedUser", fields: [onlineAccessInfoId], references: [id])
-  shop               Shop?                        @relation("shopAssociatedUsers", fields: [shopId], references: [id])
+  shop               Shop?                        @relation("shopAssociatedUsers", fields: [shopId], references: [id], onDelete: Cascade)
   subscriptions      AssociatedUserToSubscription[]    @relation("associatedUserSubscriptions")
   creditPurchases    AssociatedUserToCreditPurchase[]  @relation("associatedUserPurchases")
   usageRelation      AssociatedUserToUsage[]      @relation("associatedUserUsages")
@@ -104,6 +104,8 @@ model Shop {
   payments        Payment[]         @relation("shopPayments")
   contents        Content[]         @relation("shopContents")
   promotions      PromotionToShop[] @relation("shopPromotions")
+  webhoookLogs    WebhookLog[]      @relation("shopWebhookLogs")
+  webhoookQueues  WebhookQueue[]    @relation("shopWebhookQueues")
   sessions        ShopToSession[]   @relation("shopSessions")
   subscriptions   Subscription[]    @relation("shopSubscriptions")
   usages          Usage[]           @relation("shopUsages")
@@ -134,6 +136,7 @@ model Content {
   @@index([status])
   @@index([category])
   @@index([createdAt])
+  @@unique([contentId])
 }
 
 model Plan {
@@ -182,7 +185,8 @@ model CrawlFeature {
   id            String   @id @default(cuid())
   service       Service  @default(CRAWL_API)
   requestLimits Int
-  creditLimits  Int
+  creditLimits  Int?
+  conversionRate Float?
   metadata      Json?
   feature       Feature? @relation("featureCrawlAPI")
 }
@@ -191,7 +195,8 @@ model AIFeature {
   id            String   @id @default(cuid())
   service       Service  @default(AI_API)
   requestLimits Int
-  creditLimits  Int
+  creditLimits  Int?
+  conversionRate Float?
   tokenLimits   Int?
   maxTokens     Int
   inputTokens   Int?
@@ -208,7 +213,6 @@ model AIFeature {
 model Subscription {
   id              String             @id @default(cuid())
   shopId          String
-  shopifySubscriptionId String?
   planId          String
   status          SubscriptionStatus @default(ACTIVE)
   usageId         String             @unique
@@ -220,16 +224,16 @@ model Subscription {
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
   metadata        Json?
-  shopifyChargeId String?
+  shopifySubscriptionId String      @unique
   billingEvents   BillingEvent[]     @relation("subscriptionBillingEvents")
   payments        Payment[]          @relation("subscriptionPayments")
-  plan            Plan               @relation("planSubscriptions", fields: [planId], references: [id])
-  shop            Shop               @relation("shopSubscriptions", fields: [shopId], references: [id])
+  plan            Plan               @relation("planSubscriptions", fields: [planId], references: [id], onDelete: Cascade)
+  shop            Shop               @relation("shopSubscriptions", fields: [shopId], references: [id], onDelete: Cascade)
+  associatedUsers AssociatedUserToSubscription[]    @relation("subscriptionAssociatedUsers")
   usage           Usage              @relation("subscriptionUsage", fields: [usageId], references: [id], onDelete: Cascade)
-  associatedUsers   AssociatedUserToSubscription[]    @relation("subscriptionAssociatedUsers")
 
   @@index([shopId, status])
-  @@index([shopifyChargeId])
+  @@index([shopifySubscriptionId])
 }
 
 model CreditPackage {
@@ -256,20 +260,20 @@ model CreditPurchase {
   shopId           String
   creditPackageId  String
   purchaseSnapshot Json
-  createdAt        DateTime       @default(now())
-  metadata         Json?
-  updatedAt        DateTime       @default(now()) @updatedAt
-  shopifyPurchaseId   String?     
+  shopifyPurchaseId String        @unique
   status           PackageStatus  @default(ACTIVE)
   usageId          String         @unique
   paymentId        String?        @unique
+  createdAt        DateTime       @default(now())
+  metadata         Json?
+  updatedAt        DateTime       @default(now()) @updatedAt
+  expiredAt        DateTime       @default(now())
   billingEvents    BillingEvent[] @relation("purchaseBillingEvents")
   creditPackage    CreditPackage  @relation("packagePurchases", fields: [creditPackageId], references: [id])
-  payment          Payment?       @relation("purchasePayment", fields: [paymentId], references: [id])
+  payment          Payment?       @relation("purchasePayment", fields: [paymentId], references: [id], onDelete: Cascade)
   shop             Shop           @relation("shopCreditPurchases", fields: [shopId], references: [id], onDelete: Cascade)
   usage            Usage          @relation("purchaseUsage", fields: [usageId], references: [id], onDelete: Cascade)
   associatedUsers  AssociatedUserToCreditPurchase[]  @relation("purchaseAssociatedUsers")
-
   @@index([shopId, status])
   @@index([shopifyPurchaseId])
 }
@@ -279,16 +283,13 @@ model Usage {
   shopId          String
   date            DateTime                @default(now())
   createdAt       DateTime                @default(now())
-  updatedAt       DateTime                @default(now())
   metadata        Json?
+  updatedAt       DateTime                @default(now())
   associatedUsers AssociatedUserToUsage[] @relation("usageAssociatedUsers")
   creditPurchase  CreditPurchase?         @relation("purchaseUsage")
   serviceUsage    ServiceUsage?           @relation("usageServiceUsage")
   subscription    Subscription?           @relation("subscriptionUsage")
   shop            Shop                    @relation("shopUsages", fields: [shopId], references: [id], onDelete: Cascade)
-  totalCredits           Int?
-  totalCreditsUsed       Int?
-  totalRemainingCredits  Int?
 
   @@index([shopId])
   @@index([createdAt])
@@ -361,19 +362,20 @@ model Payment {
   id                   String          @id @default(cuid())
   shopId               String
   subscriptionId       String?
-  billingType          BillingType
   amount               Float
   adjustedAmount       Float?
   currency             String
   status               PaymentStatus
   billingPeriodStart   DateTime?
   billingPeriodEnd     DateTime?
-  shopifyTransactionId String?         @unique
+  shopifyTransactionId String?         
   refundId             String?
   refundReason         String?
   metadata             Json?
+  createdAt            DateTime        @default(now())
   updatedAt            DateTime        @updatedAt
-  billingEvents        BillingEvent[]      @relation("paymentBillingEvents")
+  billingType          BillingType
+  billingEvents        BillingEvent[]  @relation("paymentBillingEvents")
   creditPurchase       CreditPurchase? @relation("purchasePayment")
   shop                 Shop            @relation("shopPayments", fields: [shopId], references: [id], onDelete: Cascade)
   subscription         Subscription?   @relation("subscriptionPayments", fields: [subscriptionId], references: [id], onDelete: Cascade)
@@ -400,8 +402,8 @@ model AIModel {
 
 model BillingEvent {
   id               String             @id @default(cuid())
-  paymentId        String?
   subscriptionId   String?
+  paymentId        String?
   creditPurchaseId String?
   type             BillingEventType
   amount           Float
@@ -597,29 +599,45 @@ model SystemMetrics {
 model WebhookLog {
   id        String   @id @default(cuid())
   topic     String
-  shopId    String
+  shopName  String
   payload   Json
+  metadata  Json?
   createdAt DateTime @default(now())
+  updatedAt   DateTime    @updatedAt @default(now())
+  shop      Shop          @relation("shopWebhookLogs", fields: [shopName], references: [name], onDelete: Cascade)
+  
+  @@index([shopName])
 }
 
 model WebhookQueue {
-  id          String    @id @default(cuid())
+  id          String      @id @default(cuid())
+  shopName    String
   topic       String
-  shop        String
   payload     Json
-  status      String    @default("pending")
-  attempts    Int       @default(0)
+  status      WebhookQueueStatus
+  attempts    Int         @default(0)
   error       String?
-  createdAt   DateTime  @default(now())
-  processedAt DateTime?
+  lastAttempt DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  completedAt DateTime    @updatedAt @default(now())
+  metadata    Json?
+  shop      Shop          @relation("shopWebhookQueues", fields: [shopName], references: [name], onDelete: Cascade)
 
-  @@index([status, attempts])
-  @@index([shop])
+  @@index([shopName, status])
+  @@index([topic, status, attempts])
 }
 
 enum Role {
   user
   admin
+}
+
+enum WebhookQueueStatus {
+  PENDING
+  PROCESSING
+  FAILED
+  COMPLETED
 }
 
 enum SubscriptionPlan {
@@ -644,6 +662,21 @@ enum SubscriptionStatus {
   CANCELLED
   FROZEN
   EXPIRED
+  DECLINED
+  PENDING
+  ACCEPTED
+  SUSPENDED
+  TRIAL
+  INCOMPLETE
+  INCOMPLETE_EXPIRED
+  RENEWING
+  TERMINATED
+  GRACE_PERIOD
+  ON_HOLD
+  FAILED_PAYMENT
+  PRORATE_CANCELED
+  TRIAL_ENDED
+  TRIAL_ENDING
 }
 
 enum PromotionUnit {
@@ -683,6 +716,7 @@ enum PaymentStatus {
   FAILED
   CANCELLED
   REFUNDED
+  SCHEDULED
 }
 
 enum PackageStatus {
@@ -735,12 +769,18 @@ enum NotificationType {
   SYSTEM
   BILLING
   USAGE_ALERT
+  USAGE_OVER_LIMIT
+  USAGE_APPROACHING_LIMIT
   FEATURE_UPDATE
   SECURITY
   MAINTENANCE
   PAYMENT
+  TRIAL_ENDING
+  TRIAL_ENDED
   SUBSCRIPTION
   API_LIMIT
+  PACKAGE_EXPIRED
+  SUBSCRIPTION_EXPIRED
 }
 
 enum ContentStatus {
@@ -752,7 +792,7 @@ enum ContentStatus {
 enum ContentCategory {
   BLOG
   ARTICLE
-  PRDUCT
+  PRODUCT
 }
 
 enum ModelName {

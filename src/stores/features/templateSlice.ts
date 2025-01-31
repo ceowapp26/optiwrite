@@ -4,7 +4,7 @@ import { processJsonData } from '@/utils/data';
 
 interface Item {
   id: string;
-  type: 'blog' | 'article' | 'product';
+  type: 'blog' | 'article' | 'blogArticle' | 'product';
   icon?: any;
   blog_commentable?: 'moderate' | 'no' | 'yes';
   blog_feedburner?: string | null;
@@ -71,11 +71,13 @@ interface UpdateListPayload {
 interface TemplatesState {
   templates: {
     blog: string[];
+    blogArticle: string[];
     article: string[];
     product: string[];
   };
   favorites: {
     blog: string[];
+    blogArticle: string[];
     article: string[];
     product: string[];
   };
@@ -85,11 +87,13 @@ interface TemplatesState {
 const initialState: TemplatesState = {
   templates: {
     blog: [],
+    blogArticle: [],
     article: [],
     product: []
   },
   favorites: {
     blog: [],
+    blogArticle: [],
     article: [],
     product: []
   },
@@ -101,7 +105,7 @@ const templatesSlice = createSlice({
   initialState,
   reducers: {
     createTemplates(state, action: PayloadAction<{ 
-      type: 'blog' | 'article' | 'product', 
+      type: 'blog' | 'article' | 'blogArticle' | 'product', 
       items: Item[] 
     }>) {
       const { type, items } = action.payload;
@@ -115,7 +119,7 @@ const templatesSlice = createSlice({
     },
 
     updateTemplates(state, action: PayloadAction<{ 
-      type: 'blog' | 'article' | 'product', 
+      type: 'blog' | 'article' | 'blogArticle' | 'product', 
       items: Item[] 
     }>) {
       const { type, items } = action.payload;
@@ -133,7 +137,7 @@ const templatesSlice = createSlice({
     },
 
     deleteTemplate(state, action: PayloadAction<{ 
-      type: 'blog' | 'article' | 'product', 
+      type: 'blog' | 'article' | 'blogArticle' | 'product', 
       id: string 
     }>) {
       const { type, id } = action.payload;
@@ -147,7 +151,7 @@ const templatesSlice = createSlice({
       }));
     },
 
-    clearTemplatesByType(state, action: PayloadAction<'blog' | 'article' | 'product'>) {
+    clearTemplatesByType(state, action: PayloadAction<'blog' | 'article' | 'blogArticle' | 'product'>) {
       const type = action.payload;
       state.templates[type] = [];
       state.favorites[type] = [];
@@ -158,7 +162,7 @@ const templatesSlice = createSlice({
     },
 
     addToFavorites(state, action: PayloadAction<{ 
-      type: 'blog' | 'article' | 'product', 
+      type: 'blog' | 'article' | 'blogArticle' | 'product', 
       id: string 
     }>) {
       const { type, id } = action.payload;
@@ -168,7 +172,7 @@ const templatesSlice = createSlice({
     },
 
     removeFromFavorites(state, action: PayloadAction<{ 
-      type: 'blog' | 'article' | 'product', 
+      type: 'blog' | 'article' | 'blogArticle' | 'product', 
       id: string 
     }>) {
       const { type, id } = action.payload;
@@ -234,7 +238,7 @@ const templatesSlice = createSlice({
       }
     },
 
-    clearFavoritesByType(state, action: PayloadAction<'blog' | 'article' | 'product'>) {
+    clearFavoritesByType(state, action: PayloadAction<'blog' | 'article' | 'blogArticle' | 'product'>) {
       state.favorites[action.payload] = [];
     },
 
@@ -271,7 +275,7 @@ export const selectTemplatesByType = (state: { templates: TemplatesState }) =>
 
 export const selectTemplateByTypeAndId = (
   state: { templates: TemplatesState }, 
-  type: 'blog' | 'article' | 'product', 
+  type: 'blog' | 'article' | 'blogArticle' | 'product', 
   id: string
 ) => state.templates.templates[type].find(template => template.id === id);
 
@@ -299,7 +303,7 @@ export const selectTemplatesList = createSelector(
   [(state) => selectListById(state, 'templateList')],
   (list) => {
     try {
-      const processed = processJsonData(list?.items || []);
+      const processed = processJsonData(list?.items, 'array');
       return Array.isArray(processed) ? processed : [];
     } catch (error) {
       console.error('Error in template selector:', error);
@@ -309,7 +313,7 @@ export const selectTemplatesList = createSelector(
 );
 
 export const selectFavoritesByType = createSelector(
-  [selectFavorites, (state, type: 'blog' | 'article' | 'product') => type],
+  [selectFavorites, (state, type: 'blog' | 'article' | 'blogArticle' | 'product') => type],
   (favorites, type) => favorites[type]
 );
 

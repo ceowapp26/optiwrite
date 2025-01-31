@@ -26,7 +26,7 @@ export default function DashboardPage({ session }: UsagePageProps) {
   const [usageData, setUsageData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  const { shopName, shopifyUserId } = session;
+  const { shopifyUserEmail: email, shopName, shopifyUserId } = session;
   if (!shopifyUserId || !shopName) {
     return null;
   }
@@ -41,7 +41,7 @@ export default function DashboardPage({ session }: UsagePageProps) {
     try {
       setIsLoading(true);
       setError(null);
-      const data = await getUsageStateAction(shopName);
+      const data = await getUsageStateAction(shopName, email);
       setUsageData(data);
     } catch (err) {
       setError(err.message || 'Failed to fetch usage data');

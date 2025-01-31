@@ -38,15 +38,22 @@ function Sidebar({ isOpen, onToggle, onClose }: SidebarProps) {
 
   const navigationItems = [
     {
-      url: `/versions/light?${queryParams}`,
+      url: `/home?${queryParams}`,
       label: 'Home',
       icon: HomeIcon,
+      selected: pathname === '/home',
+      exactMatch: true
+    },
+    {
+      url: `/versions/light?${queryParams}`,
+      label: 'Light Version',
+      icon: OrderIcon,
       selected: pathname === '/versions/light',
       exactMatch: true
     },
     {
       url: `/versions/full?${queryParams}`,
-      label: 'Full',
+      label: 'Full Version',
       icon: OrderIcon,
       selected: pathname === '/versions/full',
       exactMatch: true
@@ -62,14 +69,14 @@ function Sidebar({ isOpen, onToggle, onClose }: SidebarProps) {
       url: `/dashboard?${queryParams}`,
       label: 'Dashboard',
       icon: ProductIcon,
-      selected: pathname === '/products',
+      selected: pathname === '/dashboard',
       exactMatch: true
     },
     {
-      url: `/content?${queryParams}`,
+      url: `/content/history?${queryParams}`,
       label: 'History',
       icon: ProductIcon,
-      selected: pathname === '/content',
+      selected: pathname === '/content/history',
       exactMatch: true
     },
   ];

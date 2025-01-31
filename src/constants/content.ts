@@ -19,9 +19,9 @@ export const BLOG_FORM = [
     name: 'blog_commentable',
     label: 'Blog Commentable',
     options: [
-      { label: 'Moderate', value: 'moderate' },
-      { label: 'No', value: 'no' },
-      { label: 'Yes', value: 'yes' },
+      { label: 'Moderate', value: 'MODERATED' },
+      { label: 'No', value: 'CLOSED' },
+      { label: 'Yes', value: 'AUTO_PUBLISHED' },
     ],
   },
   {
@@ -67,16 +67,6 @@ export const BLOG_FORM = [
   {
     id: '8',
     inputType: 'input',
-    placeholder: 'Add Metafield JSON',
-    name: 'blog_metafield',
-    label: 'Blog Metafield',
-    type: 'text',
-    multiline: true,
-    rows: 4,
-  },
-  {
-    id: '9',
-    inputType: 'input',
     placeholder: 'Enter Article Title',
     name: 'article_title',
     label: 'Article Title',
@@ -85,7 +75,7 @@ export const BLOG_FORM = [
     type: 'text',
   },
   {
-    id: '10',
+    id: '9',
     inputType: 'input',
     placeholder: 'Enter Author Name',
     name: 'article_author',
@@ -105,7 +95,7 @@ export const BLOG_FORM = [
     rows: 6,
   },
   {
-    id: '12',
+    id: '10',
     inputType: 'input',
     placeholder: 'Enter Handle',
     name: 'article_handle',
@@ -113,7 +103,7 @@ export const BLOG_FORM = [
     type: 'text',
   },
   {
-    id: '13',
+    id: '11',
     inputType: 'input',
     placeholder: 'Enter Image URL',
     name: 'article_image',
@@ -121,29 +111,20 @@ export const BLOG_FORM = [
     type: 'text',
   },
   {
-    id: '14',
-    inputType: 'input',
-    placeholder: 'Add Metafield JSON',
-    name: 'article_metafield',
-    label: 'Article Metafield',
-    multiline: true,
-    type: 'text',
-    rows: 4,
-  },
-  {
-    id: '15',
+    id: '12',
     inputType: 'checkbox',
     label: 'Article Published',
     name: 'article_published',
+    defaultValue: false,
   },
   {
-    id: '16',
+    id: '13',
     inputType: 'date',
     label: 'Article Published At',
     name: 'article_published_at',
   },
   {
-    id: '17',
+    id: '14',
     inputType: 'input',
     placeholder: 'Enter Summary HTML',
     name: 'article_summary_html',
@@ -153,7 +134,7 @@ export const BLOG_FORM = [
     rows: 4,
   },
   {
-    id: '18',
+    id: '15',
     inputType: 'input',
     placeholder: 'Enter Tags (comma-separated)',
     name: 'article_tags',
@@ -161,7 +142,7 @@ export const BLOG_FORM = [
     type: 'text',
   },
   {
-    id: '19',
+    id: '16',
     inputType: 'input',
     placeholder: 'Enter Template Suffix',
     name: 'article_template_suffix',
@@ -169,7 +150,39 @@ export const BLOG_FORM = [
     type: 'text',
   },
   {
+    id: '17',
+    inputType: 'input',
+    placeholder: 'Enter Meta Description',
+    name: 'article_meta_description',
+    label: 'Article Meta Description',
+    type: 'text',
+  },
+  {
+    id: '18',
+    inputType: 'input',
+    placeholder: 'Enter Page Title',
+    name: 'article_page_title',
+    label: 'Article Page Title',
+    type: 'text',
+  },
+  {
+    id: '19',
+    inputType: 'input',
+    placeholder: 'Enter Meta Description',
+    name: 'blog_meta_description',
+    label: 'Blog Meta Description',
+    type: 'text',
+  },
+  {
     id: '20',
+    inputType: 'input',
+    placeholder: 'Enter Page Title',
+    name: 'blog_page_title',
+    label: 'Blog Page Title',
+    type: 'text',
+  },
+  {
+    id: '21',
     inputType: 'input',
     placeholder: 'Input Data',
     label: 'Input Data',
@@ -177,11 +190,42 @@ export const BLOG_FORM = [
     type: 'text',
   },
   {
-    id: '21',
+    id: '22',
     inputType: 'input',
     placeholder: 'User Id',
     label: 'User Id',
     name: 'user_id',
+    type: 'text',
+  },
+];
+
+export const UPDATE_BLOG_FORM =
+  [
+  ...BLOG_FORM,
+  {
+    id: 'blog_id',
+    inputType: 'input',
+    name: 'blog_id',
+    label: 'Blog ID',
+    type: 'text',
+  },
+];
+
+export const UPDATE_ARTICLE_FORM =
+  [
+  ...BLOG_FORM,
+  {
+    id: 'article_id',
+    inputType: 'input',
+    name: 'article_id',
+    label: 'Article ID',
+    type: 'text',
+  },
+  {
+    id: 'blog_id',
+    inputType: 'input',
+    name: 'blog_id',
+    label: 'Blog ID',
     type: 'text',
   },
 ];
@@ -220,9 +264,9 @@ export const PRODUCT_FORM = [
     name: 'status',
     label: 'Status',
     options: [
-      { label: 'Active', value: 'active' },
-      { label: 'Archived', value: 'archived' },
-      { label: 'Draft', value: 'draft' },
+      { label: 'Active', value: 'ACTIVE' },
+      { label: 'Archived', value: 'ARCHIVED' },
+      { label: 'Draft', value: 'DRAFT' },
     ],
   },
   {
@@ -265,27 +309,16 @@ export const PRODUCT_FORM = [
     label: 'Tags',
     type: 'text',
   },
-
   {
     id: '10',
     inputType: 'input',
-    placeholder: 'Enter Options',
-    name: 'options',
-    label: 'Options',
+    placeholder: 'Enter Price',
+    name: 'price',
+    label: 'Price',
     type: 'text',
-    multiline: 4
   },
   {
     id: '11',
-    inputType: 'input',
-    placeholder: 'Enter Variants',
-    name: 'variants',
-    label: 'Variants',
-    type: 'text',
-    multiline: 4
-  },
-  {
-    id: '12',
     inputType: 'input',
     placeholder: 'Enter Page Title',
     name: 'page_title',
@@ -293,11 +326,19 @@ export const PRODUCT_FORM = [
     type: 'text',
   },
   {
-    id: '13',
+    id: '12',
     inputType: 'input',
     placeholder: 'Enter Meta Description',
     name: 'meta_description',
     label: 'Meta Description',
+    type: 'text',
+  },
+  {
+    id: '13',
+    inputType: 'input',
+    placeholder: 'Enter Body Content',
+    name: 'body_html',
+    label: 'Body Content',
     type: 'text',
   },
   {
@@ -306,6 +347,18 @@ export const PRODUCT_FORM = [
     placeholder: 'Input Data',
     label: 'Input Data',
     name: 'input_data',
+    type: 'text',
+  },
+];
+
+export const UPDATE_PRODUCT_FORM =
+  [
+  ...PRODUCT_FORM,
+  {
+    id: 'product_id',
+    inputType: 'input',
+    name: 'product_id',
+    label: 'Product ID',
     type: 'text',
   },
 ];
@@ -480,28 +533,23 @@ export const GENERIC_FORM: Array<{
     required: false,
   },
   {
-    name: 'variants',
-    type: 'array',
-    required: false,
-  },
-  {
-    name: 'options',
-    type: 'array',
-    required: false,
-  },
-  {
-    name: 'pageTitle',
+    name: 'page_title',
     type: 'text',
     required: false,
   },
   {
-    name: 'metaDescription',
+    name: 'meta_description',
     type: 'text',
     required: false,
   },
   {
     name: 'handle',
     type: 'text',
+    required: false,
+  },
+  {
+    name: 'price',
+    type: 'number',
     required: false,
   },
   {
@@ -585,8 +633,28 @@ export const GENERIC_FORM: Array<{
     required: false,
   },
   {
-    name: 'article_metafield',
-    type: 'object',
+    name: 'article_meta_description',
+    type: 'text',
+    required: false,
+  },
+  {
+    name: 'article_page_title',
+    type: 'text',
+    required: false,
+  },
+  {
+    name: 'blog_meta_description',
+    type: 'text',
+    required: false,
+  },
+  {
+    name: 'blog_page_title',
+    type: 'text',
+    required: false,
+  },
+  {
+    name: 'article_published',
+    type: 'boolean',
     required: false,
   },
   {
@@ -611,108 +679,15 @@ export const GENERIC_FORM: Array<{
   },
 ];
 
- export const PRODUCT_FORM_1 = [
-  {
-    id: '1',
-    inputType: 'input',
-    placeholder: 'Enter Product Title',
-    name: 'title',
-    label: 'Title',
-    maxLength: 100,
-    showCharacterCount: true,
-    type: 'text',
-  },
-  {
-    id: '2',
-    inputType: 'textarea',
-    placeholder: 'Enter Product Description (HTML)',
-    name: 'body_html',
-    label: 'Description',
-    multiline: true,
-    rows: 6,
-  },
-  {
-    id: '3',
-    inputType: 'input',
-    placeholder: 'Enter Handle',
-    name: 'handle',
-    label: 'Handle',
-    type: 'text',
-  },
-  {
-    id: '4',
-    inputType: 'input',
-    placeholder: 'Enter Product Type',
-    name: 'product_type',
-    label: 'Product Type',
-    type: 'text',
-  },
-  {
-    id: '5',
-    inputType: 'input',
-    placeholder: 'Enter Vendor Name',
-    name: 'vendor',
-    label: 'Vendor',
-    type: 'text',
-  },
-  {
-    id: '6',
-    inputType: 'select',
-    placeholder: 'Select Product Status',
-    name: 'status',
-    label: 'Status',
-    options: [
-      { label: 'Active', value: 'active' },
-      { label: 'Archived', value: 'archived' },
-      { label: 'Draft', value: 'draft' },
-    ],
-  },
-  {
-    id: '7',
-    inputType: 'input',
-    placeholder: 'Enter Product Tags (comma-separated)',
-    name: 'tags',
-    label: 'Tags',
-    multiline: true,
-    rows: 2,
-  },
-  {
-    id: '8',
-    inputType: 'input',
-    placeholder: 'Enter Global Title Tag',
-    name: 'metafields_global_title_tag',
-    label: 'Global Title Tag',
-    multiline: true,
-    rows: 2,
-  },
-  {
-    id: '9',
-    inputType: 'input',
-    placeholder: 'Enter Global Description Tag',
-    name: 'metafields_global_description_tag',
-    label: 'Global Description Tag',
-    multiline: true,
-    rows: 2,
-  },
-];
-
 export const DEFAULT_VALUES: Record<string, any> = {
   title: 'Sample Product - Brand Name',
   vendor: 'Sample Vendor',
-  status: 'active',
+  status: 'ACTIVE',
   body_html: '<p>This product solves your problem by providing a unique solution that adds value.</p>',
-  product_type: 'Electronics',
-  variants: [
-    {
-      id: 1,
-      title: 'Default Variant',
-      price: 100,
-      sku: 'SKU001',
-    },
-  ],
-  options: ['Size', 'Color'],
-  pageTitle: 'Sample Product Page Title',
-  metaDescription: 'This is a brief description of the sample product for search engines.',
+  product_type: 'Default Product Type',
+  price: 100,
+  page_title: 'Sample Product Page Title',
+  meta_description: 'This is a brief description of the sample product for search engines.',
   handle: 'sample-product-handle',
   tags: 'sample,product,brand,electronics',
   image: 'https://via.placeholder.com/150',
@@ -722,7 +697,7 @@ export const DEFAULT_VALUES: Record<string, any> = {
     'https://via.placeholder.com/150',
   ],
   blog_title: 'Sample Blog Title',
-  blog_commentable: 'yes',
+  blog_commentable: 'AUTO_PUBLISHED',
   blog_feedburner: 'feedburner-url',
   blog_feedburner_location: 'feedburner-location',
   blog_handle: 'sample-blog-handle',
@@ -733,13 +708,13 @@ export const DEFAULT_VALUES: Record<string, any> = {
   article_body_html: '<p>This is the body of the sample article.</p>',
   article_handle: 'sample-article-handle',
   article_image: 'https://via.placeholder.com/150',
-  article_metafield: {
-    namespace: 'custom',
-    key: 'field',
-    value: 'Sample Meta Value',
-  },
+  article_published: true,
   article_published_at: new Date().toISOString(),
   article_summary_html: '<p>This is a brief summary of the sample article.</p>',
   article_tags: 'article,sample,news',
   article_template_suffix: 'default',
+  article_meta_description: 'default',
+  article_page_title: 'default',
+  blog_meta_description: 'default',
+  blog_page_title: 'default',
 };

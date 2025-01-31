@@ -64,24 +64,24 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </Head>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <React.StrictMode>
-          <ShopifyProvider>
-            <ReduxProvider>
-              <ThemeProvider
-                attribute="class"
-                defaultTheme="system"
-                enableSystem
-                disableTransitionOnChange
-                storageKey="telamonix-theme-2"
-              >
-                <Toaster position="bottom-center" />
-                <GeneralContextProvider>
-                  <JoyrideProvider>
-                    {children}
-                  </JoyrideProvider>
-                </GeneralContextProvider>
-              </ThemeProvider>
-            </ReduxProvider>
-          </ShopifyProvider>
+          <GeneralContextProvider>
+            <ShopifyProvider>
+              <ReduxProvider>
+                <ThemeProvider
+                  attribute="class"
+                  defaultTheme="system"
+                  enableSystem
+                  disableTransitionOnChange
+                  storageKey="telamonix-theme-2"
+                >
+                  <Toaster position="bottom-center" />
+                    <JoyrideProvider>
+                      {children}
+                    </JoyrideProvider>
+                </ThemeProvider>
+              </ReduxProvider>
+            </ShopifyProvider>
+          </GeneralContextProvider>
         </React.StrictMode>
       </body>
     </html>

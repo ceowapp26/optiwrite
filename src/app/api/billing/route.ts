@@ -5,15 +5,21 @@ import { generateQueryParams } from '@/utils/auth/shopify';
 import { ShopifySessionManager } from '@/utils/storage';
 import { PlanManager, SubscriptionManager } from '@/utils/billing';
 import { handleCreate, handleRenew, handleUpdate, handleCancel, calculateDiscountValue } from '@/utils/billing/subscriptionHelpers';
-import { PaymentStatus, SubscriptionPlan } from '@prisma/client';
+import { PaymentStatus, SubscriptionPlan, SubscriptionStatus } from '@prisma/client';
 import { DateTime } from 'luxon';
 import { BillingEvent } from '@/types/billing';
 
-export const maxDuration = 60; 
+export const maxDuration = 60;
+
+const terminatedStatuses = {
+  [SubscriptionStatus.CANCELLED]: SubscriptionStatus.CANCELLED,
+  [SubscriptionStatus.DECLINED]: SubscriptionStatus.DECLINED,
+  [SubscriptionStatus.EXPIRED]: SubscriptionStatus.CANCELLED,
+} ;
 
 export async function POST(req: NextRequest) {
   try {
-    const { event, planName, cancelReason, email, shop, host } = await req.json();
+    const { event, planName, cancelReason, prorate = false, status: subscriptionStatus, subscriptionId = undefined, email, shop, host } = await req.json();
     if (!event || !shop || !host) {
       return Response.json({ error: 'Missing required parameters' }, { status: 400 });
     }
@@ -39,7 +45,7 @@ export async function POST(req: NextRequest) {
     if (appliedPlanDiscount) {
       const discountValue = calculateDiscountValue({
         appliedPlanDiscount: appliedPlanDiscount?.discount,
-        referenceAmount: finalPrice || plan.price
+        referenceAmount: plan.totalPrice
       });
       const planDiscount = {
         discount: {
@@ -82,14 +88,28 @@ export async function POST(req: NextRequest) {
         }
         break;
       case BillingEvent.CANCEL:
-        const currentSubscription = await SubscriptionManager.getCurrentSubscription(sanitizedShop);
-        if (!currentSubscription) {
-          throw new Error('No active subscription found to cancel');
+        if (!subscriptionId) {
+          throw new Error('Missing subscription ID');
+          return null;
         }
-        const subscriptionId = currentSubscription?.shopifySubscriptionId;
-        response = await handleCancel(client, subscriptionId);
+        if (Object.keys(terminatedStatuses).includes(subscriptionStatus)) {
+          throw new Error('This subscription is already canceled.');
+          return null;
+        }  
+        response = await handleCancel(client, subscriptionId, prorate);
         if (response?.subscriptionId) {
-          await SubscriptionManager.cancel(sanitizedShop, cancelReason, email);
+          await SubscriptionManager.updateSubscriptionStatus(
+            response?.subscriptionId, 
+            sanitizedShop, 
+            cancelReason, 
+            email, 
+            prorate, 
+            true,
+            SubscriptionStatus.CANCELLED, 
+            response?.createdAt, 
+            response?.updatedAt,
+            response?.price
+          );
           confirmationUrl = `${process.env.SHOPIFY_API_URL}/billing?${queryParams.toString()}`;
         } else {
           throw new Error('Failed to cancel subscription with Shopify');

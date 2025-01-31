@@ -54,8 +54,9 @@ interface OverlayProps {
 export const OverlayWrapper: React.FC<OverlayProps> = ({ isVisible }) => {
   return (
     <Overlay
+      key={`overlay-${isVisible ? 'visible' : 'hidden'}`}
       initial="hidden"
-      animate={isVisible ? "visible" : "hidden"}
+      animate={isVisible ? 'visible' : 'hidden'}
       exit="exit"
       variants={overlayVariants}
     />

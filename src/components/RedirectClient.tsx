@@ -12,7 +12,7 @@ export default function RedirectClient() {
       shop: shop || '',
       host: host || ''
     }).toString();
-    const redirectUrl = `${process.env.SHOPIFY_HOST}/versions/light?${queryParams}`;
+    const redirectUrl = `${process.env.SHOPIFY_HOST}/home?${queryParams}`;
     if (!pathName.includes("shops")) {
       setTimeout(() => {
         window.open(redirectUrl, "_top");

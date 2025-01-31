@@ -1,14 +1,16 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
 import {
   Page,
   Layout,
+  Box,
   Card,
   ResourceList,
   ResourceItem,
   Badge,
   Filters,
+  Grid,
   Button,
   ChoiceList,
   EmptyState,
@@ -18,24 +20,110 @@ import {
   BlockStack,
   Frame,
   Tag,
+  Toast,
   Tooltip,
   Modal,
   Spinner,
   Popover,
-  ActionList
+  ActionList,
+  TextField,
+  AppProvider,
+  LegacyCard,
+  ContextualSaveBar,
+  FormLayout,
+  Navigation,
+  SkeletonBodyText,
+  SkeletonDisplayText,
+  SkeletonPage,
+  TextContainer,
+  InlineStack,
+  Link,
+  ProgressBar,
+  Banner,
+  Icon
 } from '@shopify/polaris';
+import {
+  ArrowLeftIcon,
+  HomeIcon,
+  OrderIcon,
+  ChatIcon,
+  CheckIcon,
+  MoonIcon,
+  SunIcon,
+  ExternalIcon,
+  AppsIcon,
+  ViewIcon,
+  PlusCircleIcon,
+  CreditCardIcon,
+  ChartVerticalFilledIcon,
+  CheckCircleIcon,
+  AlertDiamondIcon,
+  DeleteIcon,
+  EditIcon,
+  PlusIcon,
+  ComposeIcon,
+  ChevronDownIcon,
+  HeartIcon
+} from '@shopify/polaris-icons';
 import { useAppBridge } from '@/providers/AppBridgeProvider';
+import LanguageIcon from '@mui/icons-material/Language';
 import { Redirect } from '@shopify/app-bridge/actions';
 import { Content, ContentCategory } from '@/types/content';
+import { useTheme } from 'next-themes';
+import { type Theme, useGeneralContext, useGeneralActions } from "@/context/GeneralContextProvider";
 import { HistoryContentCard } from './HistoryContentCard';
 import { ContentDetailsModal } from './ContentDetailsModal';
 import LoadingScreen from '@/components/LoadingScreen';
 import { getUserContentHistory } from "@/actions/content";
 import { AppSession } from '@/types/auth';
 import { ShopApiService } from '@/utils/api';
-import { useFlattenArticles } from '@/hooks/useFlattenArticles';
-import { ViewIcon, EditIcon, PlusIcon, DeleteIcon, ChevronDownIcon, HeartIcon } from '@shopify/polaris-icons';
+import { useFlattenContent } from '@/hooks/useFlattenContent';
+import { eventEmitter } from '@/helpers/eventEmitter';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { styled } from 'styled-components';
+import { AnimatePresence, motion } from 'framer-motion';
+import RedirectModal from './RedirectModal';
+import NotificationBell from "@/components/NotificationBell";
+import LanguageSelector from '@/components/LanguageSelector';
+import Sidebar from '@/components/Sidebar';
+import { supabase } from '@/lib/supabase';
+import { LayoutContainer, layoutVariants, StyledOverlay, overlayVariants } from '@/styles/style.general';
+
+const ThemeToggleButton = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  border: 1px solid var(--p-border-subdued);
+  border-radius: 6px;
+  background: var(--p-surface);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  
+  &:hover {
+    background: var(--p-surface-hovered);
+    transform: translateY(-1px);
+  }
+
+  &:active {
+    transform: translateY(0);
+  }
+
+  svg {
+    width: 20px;
+    height: 20px;
+    color: var(--p-text);
+  }
+`;
+
+const IconWrapper = styled.span`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--p-text);
+  font-size: 14px;
+  font-weight: 500;
+`;
 
 interface SearchStats {
  totalResults: number;
@@ -238,7 +326,7 @@ const ContentCard = memo(({ content, onAction, loading, deletedItem }) => {
       : bodyContent;
     return (
       <BlockStack gap="200">
-        <Text as="h3" variant="headingSm">{content?.title || content?.article_title || "Undefined"}</Text>
+        <Text as="h3" variant="headingSm">{content?.title || content?.article_title || content?.blog_title || "Undefined"}</Text>
         <Text variant="bodyMd" tone="subdued">
           {truncatedContent}
         </Text>
@@ -256,65 +344,29 @@ const ContentCard = memo(({ content, onAction, loading, deletedItem }) => {
     );
   };
 
+
   const renderActionButtons = () => {
     return (
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center',
-        marginTop: '16px'
-      }}>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <Tooltip content="View Details">
-            <Button 
-              icon={EditIcon} 
-              variant="secondary" 
-              size="slim"
-              disabled={loading}
-              onClick={() => onAction('edit', content)}
-            />
-          </Tooltip>
-          <Tooltip content="Delete Content">
-            <Button 
-              icon={DeleteIcon} 
-              variant="secondary" 
-              size="slim"
-              disabled={loading  && deletedItem !== content.contentId}
-              loading={loading && deletedItem === content.contentId}
-              onClick={() => onAction('delete', content)}
-            />
-          </Tooltip>
-        </div>
-        
-        <Popover
-          active={popoverActive}
-          activator={
-            <Button 
-              icon={ChevronDownIcon}
-              variant="secondary"
-              size="slim"
-              onClick={() => setPopoverActive(!popoverActive)}
-            />
-          }
-          onClose={() => setPopoverActive(false)}
-        >
-          <ActionList
-            actionRole="menuitem"
-            items={[
-              {
-                content: 'Edit',
-                icon: EditIcon,
-                onAction: () => onAction('edit', content)
-              },
-              {
-                content: 'Delete',
-                icon: DeleteIcon,
-                destructive: true,
-                onAction: () => onAction('delete', content)
-              }
-            ]}
+      <div className="absolute bottom-4 left-8 right-8 flex justify-between items-center">
+        <Tooltip content="View Details">
+          <Button 
+            icon={EditIcon} 
+            variant="secondary" 
+            size="slim"
+            disabled={loading}
+            onClick={() => onAction('edit', content)}
           />
-        </Popover>
+        </Tooltip>
+        <Tooltip content="Delete Content">
+          <Button 
+            icon={DeleteIcon} 
+            variant="secondary" 
+            size="slim"
+            disabled={loading  && deletedItem !== content.contentId}
+            loading={loading && deletedItem === content.contentId}
+            onClick={() => onAction('delete', content)}
+          />
+        </Tooltip>
       </div>
     );
   };
@@ -325,19 +377,13 @@ const ContentCard = memo(({ content, onAction, loading, deletedItem }) => {
       accessibilityLabel={`View details for ${content?.title || content?.article_title}`}
       name={content?.title || content?.article_title}
     >
-      <Card 
-        key={content?.id} 
-        padding="400"
-        background="bg-surface-secondary"
-        roundedAbove="sm"
-        shadow="md"
-      >
+      <Box className="p-4 h-[400px] border border-gray-200 shadow-sm rounded-lg bg-white relative">
         <BlockStack gap="400">
           {renderTemplateImage()}
           {renderContentDetails()}
           {renderActionButtons()}
         </BlockStack>
-      </Card>
+      </Box>
     </ResourceItem>
   );
 });
@@ -345,20 +391,27 @@ const ContentCard = memo(({ content, onAction, loading, deletedItem }) => {
 const VISIBLE_ITEMS = 4;
 const TOTAL_VISIBLE_ITEMS = 10;
 const BATCH_SIZE = 50;
+const HISTORY_UPDATE_DELAY = 1000;
 
 interface ContentHistoryPageProps {
   session: AppSession;
 }
 
 export default function ContentHistory({ session }: ContentHistoryPageProps) {
+  const { state } = useGeneralContext();
+  const { setTheme: setNextTheme } = useTheme();
+  const { setTheme, setIsSidebarOpened } = useGeneralActions();
+  const { theme, isSidebarOpened } = state;  
   const [contents, setContents] = useState<ShopifyContent[]>([]);
   const [deletedItem, setDeletedItem] = useState(null);
   const [isDeleting, setIsDeleting] = useState(null);
   const [selectedContent, setSelectedContent] = useState<Content | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [currentLimit, setCurrentLimit] = useState(16);
+  const [currentLimit, setCurrentLimit] = useState(8);
+  const [paginationLimit, setPaginationLimit] = useState(1);
   const [totalContents, setTotalContents] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -372,14 +425,24 @@ export default function ContentHistory({ session }: ContentHistoryPageProps) {
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 1000]);
   const [minMaxPrices, setMinMaxPrices] = useState<{ min: number; max: number }>({ min: 0, max: 1000 });
   const searchTimeout = useRef<NodeJS.Timeout>();
+  const [toastMessage, setToastMessage] = useState("");
+  const [toastActive, setToastActive] = useState(false);
+  const [showRedirectModal, setShowRedirectModal] = useState(false);
+  const [isSetupLoading, setIsSetupLoading] = useState<boolean>(false);
+  const [toastType, setToastType] = useState<"success" | "error">("success");
   const [confirmDeleteModal, setConfirmDeleteModal] = useState(false);
   const { shopName, shopifyOfflineAccessToken: accessToken } = session;
-  const { flattenArticles } = useFlattenArticles();
+  const { flattenArticles, flattenBlogs, flattenProducts } = useFlattenContent();
   const { app } = useAppBridge();
   const redirect = app && Redirect.create(app);
   const searchParams = useSearchParams();
   const shop = searchParams?.get("shop") || "";
   const host = searchParams?.get("host") || "";
+
+  const onSidebarOpen = () => setIsSidebarOpened(true);
+  const onSidebarClose = () => setIsSidebarOpened(false);
+  const onSidebarToggle = () => setIsSidebarOpened(!isSidebarOpened);
+
   const calculatePriceRange = useCallback((contents: CONTENT[]) => {
     const prices = contents
       .map(p => Number(p.variants?.[0]?.price) || 0)
@@ -421,7 +484,7 @@ export default function ContentHistory({ session }: ContentHistoryPageProps) {
       [],
     );
 
-  const fetchContentHistory = useCallback(async (limit: number) => {
+  const fetchContentHistory = useCallback(async (pagination: number, limit: number) => {
     if (!shopName) return;
     try {
       setIsLoading(true);
@@ -429,13 +492,16 @@ export default function ContentHistory({ session }: ContentHistoryPageProps) {
       const result = await ShopApiService.getList(
         accessToken, 
         shopName,
-        1,
+        paginationLimit,
         limit
       );
       const flattenedArticles = flattenArticles(result?.articles);
+      const flattenedBlogs = flattenBlogs(result?.blogs);
+      const flattenedProducts = flattenProducts(result?.products);
       const combinedArray = [
         ...flattenedArticles,
-        ...(result.products || [])
+        ...flattenedBlogs,
+        ...flattenedProducts
       ];
       setContents(combinedArray);
       setTotalContents(result.total);
@@ -448,37 +514,38 @@ export default function ContentHistory({ session }: ContentHistoryPageProps) {
 
   const memoizedContents = useMemo(() => contents, [contents]);
 
-  const loadMoreContent = useCallback(async () => {
-    const newLimit = currentLimit + 16;
+  const loadMoreContents = useCallback(async () => {
+    const newPaginationLimit = paginationLimit + 1;
     try {
       setLoadingMore(true);
       const result = await ShopApiService.getList(
         accessToken, 
         shopName,
-        1,
-        newLimit
+        newPaginationLimit,
+        currentLimit
       );
       const flattenedArticles = flattenArticles(result?.articles);
-      const flattenedBlogs = flattenArticles(result?.blogs);
+      const flattenedBlogs = flattenBlogs(result?.blogs);
+      const flattenedProducts = flattenProducts(result?.products);
       const combinedArray = [
         ...flattenedArticles,
         ...flattenedBlogs,
-        ...(result.articles || [])
+        ...flattenedProducts
       ];
       setContents(combinedArray);
-      setCurrentLimit(newLimit);
+      setPaginationLimit(newPaginationLimit);
       setTotalContents(result.total);
     } catch (error) {
       console.error('Failed to load more content', error);
     } finally {
       setLoadingMore(false);
     }
-  }, [currentLimit, session]);
+  }, [currentLimit, paginationLimit, session]);
 
   useEffect(() => {
     if (isLoading) return;
-    fetchContentHistory(currentLimit);
-  }, [fetchContentHistory, currentLimit]);
+    fetchContentHistory(paginationLimit, currentLimit);
+  }, [fetchContentHistory]);
 
   useEffect(() => {
     const unsubscribe = eventEmitter.subscribe('formSubmitted', () => {
@@ -490,12 +557,13 @@ export default function ContentHistory({ session }: ContentHistoryPageProps) {
   useEffect(() => {
     if (isPublishing) {
       const timer = setTimeout(() => {
-        fetchContentHistory(currentLimit);
+        setPaginationLimit(1);
+        fetchContentHistory(paginationLimit, currentLimit);
         setIsPublishing(false);
       }, HISTORY_UPDATE_DELAY);
       return () => clearTimeout(timer);
     }
-  }, [isPublishing, fetchContentHistory, currentLimit]);
+  }, [isPublishing, fetchContentHistory, currentLimit, paginationLimit]);
 
   const filteredContents = useMemo(() => {
     let filtered = contents.map(content => ({
@@ -517,7 +585,7 @@ export default function ContentHistory({ session }: ContentHistoryPageProps) {
     }
     if (priceRange[0] > minMaxPrices.min || priceRange[1] < minMaxPrices.max) {
       filtered = filtered.filter(content => {
-        if (!('product_type' in content)) return true; // Skip non-products
+        if (!('product_type' in content)) return true;
         const price = Number(content.variants?.[0]?.price) || 0;
         return price >= priceRange[0] && price <= priceRange[1];
       });
@@ -598,6 +666,35 @@ const searchStats: SearchStats = useMemo(() => ({
    priceRange: priceRange[0] || priceRange[1] ? priceRange : undefined
  }), [contents.length, filteredContents.length, searchQuery, selectedStatuses, selectedContentTypes, sortOrder, priceRange]);
 
+  const setUpShopStorage = useCallback(async () => {
+    if (!shopName) return;
+    setIsSetupLoading(true);
+    try {
+      const { data: existingFiles, error: listError } = await supabase.storage
+        .from('optiwrite-images')
+        .list(`${shopName}`);
+      if (listError) {
+        console.error("Error checking folder:", listError);
+        throw listError;
+      }
+      if (existingFiles && existingFiles.length > 0) {
+        const filesToRemove = existingFiles.map((file) => `${shopName}/${file.name}`);
+        const { error: removeError } = await supabase.storage
+          .from('optiwrite-images')
+          .remove(filesToRemove);
+        if (removeError) {
+          console.error("Error clearing folder:", removeError);
+          throw removeError;
+        }
+      }
+    } catch (error) {
+      console.error("Error setting up storage:", error);
+      throw error;
+    } finally {
+      setIsSetupLoading(false);
+    }
+  }, [shopName]);
+
   const handleCreateNewContent = useCallback(() => {
     if (!shop || !host || !redirect) return;
     const queryParams = new URLSearchParams({ shop, host }).toString();
@@ -606,15 +703,20 @@ const searchStats: SearchStats = useMemo(() => ({
     });
   }, [redirect, shop, host]);
 
-  const handleEdit = useCallback((content: Content) => {
+  const handleEdit = useCallback(async(contentId: string) => {
     if (!shop || !host || !redirect) {
       console.error('Missing required navigation parameters');
       return;
     }
     const queryParams = new URLSearchParams({ shop, host }).toString();
-    const returnUrl = `/content/${content.contentId}?${queryParams}`;
+    await setUpShopStorage();
+    const returnUrl = `/content/${contentId}?${queryParams}`;
     redirect.dispatch(Redirect.Action.APP, { path: returnUrl });
-  }, [redirect, shop, host]);
+  }, [redirect, setUpShopStorage, shop, host]);
+
+  const onOpenEditView = useCallback(async () => {
+    setShowRedirectModal(true);
+  }, []);
 
   const handleDelete = useCallback(async(contentId: string) => {
     if (!shopName || !accessToken) {
@@ -627,8 +729,8 @@ const searchStats: SearchStats = useMemo(() => ({
       await ShopApiService.delete(accessToken, shopName, contentId);
       setContents(contents.filter(content => content.contentId !== contentId));
     } catch (err) {
-      console.error('Failed to delete product:', err);
-      setError('Failed to delete product!!')
+      console.error('Failed to delete content:', err);
+      setError('Failed to delete content!!')
     } finally {
       setDeletedItem(null);
       setIsDeleting(false);
@@ -643,7 +745,7 @@ const searchStats: SearchStats = useMemo(() => ({
         break;
       case 'edit':
         setSelectedContent(content);
-        handleEdit(content);
+        onOpenEditView();
         break;
       case 'delete':
         setSelectedContent(content);
@@ -788,209 +890,419 @@ const searchStats: SearchStats = useMemo(() => ({
     });
   }, [searchParams, redirect, shop, host]);
 
-  return (
-    <Frame>
-      <Page
-        title="Content History"
-        subtitle="Manage and track your content"
-        primaryAction={
-          <Button primary onClick={handleCreateNewContent}>
-            Create New Content
-          </Button>
-        }
-        fullWidth
-      >
-        <div className="h-full w-full max-h-[800px] rounded-xl border border-gray-400/60 !overflow-y-auto shadow-md transition-all duration-300 bg-[--p-color-bg-surface]">
-          <div className="flex flex-col h-full bg-surface dark:bg-surface-dark">
-            <div className="sticky top-0 z-10 bg-white dark:bg-[var(--p-color-bg-surface)] bg-py-4 px-4 border-b border-gray-200 z-20">
-              <BlockStack gap="400">
-                <div className="flex justify-between items-center mt-3">
-                  <div>
-                    <h2 className="text-2xl font-semibold text-emphasis dark:text-emphasis-dark">
-                      Publish History
-                    </h2>
-                    <Text variant="bodySm" tone="subdued">
-                      Manage and track your product listings
-                    </Text>
-                  </div>
-                  <Button
-                    variant="primary"
-                    onClick={handleCreateNewPublish}
-                    icon={PlusIcon}
-                  >
-                    Publish New Product
-                  </Button>
-                </div>
+  const onNavigateToSupport = useCallback(() => {
+    const shop = searchParams?.get("shop");
+    const host = searchParams?.get("host");
+    if (!shop || !host || !redirect) {
+      console.error('Missing required navigation parameters');
+      return;
+    }
+    const queryParams = new URLSearchParams({
+      shop,
+      host
+    }).toString();
+    const returnUrl = `/support?${queryParams}`; 
+    redirect.dispatch(Redirect.Action.APP, {
+      path: returnUrl
+    });
+  }, [searchParams, redirect]);
 
-                <TextField
-                  label="Search products"
-                  value={searchDebounce}
-                  onChange={setSearchDebounce}
-                  placeholder="Search by title, category, vendor, tags, or SKU..."
-                  clearButton
-                  onClearButtonClick={() => {
-                    setSearchDebounce('');
-                    setSearchQuery('');
-                  }}
-                  autoComplete="off"
-                />
-                <Filters
-                   queryValue={searchQuery}
-                   filters={enhancedFilters}
-                   onQueryChange={setSearchQuery}
-                   appliedFilters={[
-                     ...(selectedStatuses.length > 0 ? [{
-                       key: 'status',
-                       label: `Status: ${selectedStatuses.join(', ')}`,
-                       onRemove: () => setSelectedStatuses([])
-                     }] : []),
-                     ...(taggedWith ? [{
-                        key: 'taggedWith',
-                        label: `Tags: ${taggedWith}`,
-                        onRemove: () => setTaggedWith('')
-                      }] : []),
-                     ...(priceRange[0] > minMaxPrices.min || priceRange[1] < minMaxPrices.max ? [{
-                        key: 'price',
-                        label: `Price: $${priceRange[0]} - $${priceRange[1]}`,
-                        onRemove: () => setPriceRange([minMaxPrices.min, minMaxPrices.max])
-                      }] : []),
-                      ...(sortOrder !== 'relevance' ? [{
-                        key: 'sort',
-                        label: `Sort: ${sortOrder}`,
-                        onRemove: () => setSortOrder('relevance')
-                      }] : [])
-                    ]}
-                   onClearAll={() => {
-                    setSearchDebounce('');
-                    setSearchQuery('');
-                    setSelectedStatuses([]);
-                    setSelectedContentTypes([]);
-                    setTaggedWith('');
-                    setPriceRange([minMaxPrices.min, minMaxPrices.max]);
-                    setSortOrder('relevance');
-                  }}
-                />
-                <div className="mt-2">
-                  <Text variant="bodyMd" tone="subdued">
-                    {searchStats.filteredResults === searchStats.totalResults ? 
-                      `${searchStats.totalResults} total products` : 
-                      `Showing ${searchStats.filteredResults} of ${searchStats.totalResults} products`}
-                    {Object.values(searchStats.appliedFilters).some(f => f && f.length) && (
-                      <span className="ml-1">
-                        (filtered by: {[
-                          searchStats.appliedFilters.search && 'search',
-                          searchStats.appliedFilters.status?.length && 'status',
-                          searchStats.appliedFilters.productType?.length && 'category',
-                          searchStats.priceRange?.length && 'price',
-                          searchStats.sortOrder !== 'relevance' && 'sort'
-                        ].filter(Boolean).join(', ')})
-                      </span>
-                    )}
-                  </Text>
-                </div>
-              </BlockStack>
+  const onNavigateToBilling = useCallback(() => {
+    const shop = searchParams?.get("shop");
+    const host = searchParams?.get("host");
+    if (!shop || !host || !redirect) {
+      console.error('Missing required navigation parameters');
+      return;
+    }
+    const queryParams = new URLSearchParams({
+      shop,
+      host
+    }).toString();
+    const returnUrl = `/billing?${queryParams}`; 
+    redirect.dispatch(Redirect.Action.APP, {
+      path: returnUrl
+    });
+  }, [searchParams, redirect]);
+
+  const onNavigateToDashboard = useCallback(() => {
+    const shop = searchParams?.get("shop");
+    const host = searchParams?.get("host");
+    if (!shop || !host || !redirect) {
+      console.error('Missing required navigation parameters');
+      return;
+    }
+    const queryParams = new URLSearchParams({
+      shop,
+      host
+    }).toString();
+    const returnUrl = `/dashboard?${queryParams}`; 
+    redirect.dispatch(Redirect.Action.APP, {
+      path: returnUrl
+    });
+  }, [searchParams, redirect]);
+
+  const toggleTheme = useCallback(() => {
+    const newTheme = theme === 'light' ? 'dark-experimental' : 'light';
+    const _newTheme = theme === 'light' ? 'dark' : 'light';
+    setTheme(newTheme);
+    setNextTheme(_newTheme);
+    localStorage.setItem('theme', newTheme);
+  }, [theme, setTheme]);
+
+  useEffect(() => {
+    const storedTheme = localStorage.getItem('theme') || 'light';
+    const _newTheme = storedTheme === 'light' ? 'light' : 'dark';
+    setTheme(storedTheme);
+    setNextTheme(_newTheme);
+  }, []);
+
+  const navigationMarkup = (
+    <Sidebar
+      isOpen={isSidebarOpened} 
+      onToggle={onSidebarToggle} 
+      onOpen={onSidebarOpen}
+      onClose={onSidebarClose}
+    />
+  );
+
+  const topBarMarkup = (
+    <Box className="bg-white p-4 mt-6 rounded-md shadow-lg px-10 w-full">
+      <InlineStack align="space-between" blockAlign="center" gap="400">
+        <InlineStack align="center" gap="400">
+          <Text variant="headingLg" as="h1">
+            Optiwrite
+          </Text>
+
+          <InlineStack align="center" gap="400">
+            <Tooltip content="Toggle navigation">
+              <Button
+                variant="tertiary"
+                onClick={() => onToggleSidebar()}
+              >
+                <AppsIcon className="w-6 h-6 fill-gray-500" />
+              </Button>
+            </Tooltip>
+            <Tooltip content="Create new form">
+              <Button
+                variant="primary"
+                tone="success"
+                icon={ComposeIcon}
+                onClick={() => handleCreateNewContent()}
+              >
+                Create new
+              </Button>
+            </Tooltip>
+          </InlineStack>
+        </InlineStack>
+      </InlineStack>
+    </Box>
+  );
+
+  const toastMarkup = toastActive ? (
+    <Toast
+      content={toastMessage}
+      error={toastType === "error"}
+      onDismiss={() => setToastActive(false)}
+      duration={4000}
+    />
+  ) : null;
+
+  const memoizedContent = useMemo(() => (
+    <div className=" mt-10 h-full w-full max-h-[800px] rounded-xl border border-gray-400/60 !overflow-y-auto shadow-md transition-all duration-300 bg-[--p-color-bg-surface]">
+      <div className="flex flex-col h-full bg-surface dark:bg-surface-dark">
+        <div className="sticky top-0 z-10 bg-white dark:bg-[var(--p-color-bg-surface)] bg-py-4 px-4 border-b border-gray-200 z-20">
+          <BlockStack gap="400">
+            <div className="flex justify-between items-center mt-3">
+              <div>
+                <h2 className="text-2xl font-semibold text-emphasis dark:text-emphasis-dark">
+                  Publish History
+                </h2>
+                <Text variant="bodySm" tone="subdued">
+                  Manage and track your product listings
+                </Text>
+              </div>
+              <Button
+                variant="primary"
+                onClick={handleCreateNewContent}
+                icon={PlusIcon}
+              >
+                Publish New Product
+              </Button>
             </div>
 
-            <div className="flex-1 overflow-y-auto">
-              {isLoading ? (
-                <div className="flex justify-center items-center h-64">
-                  <Spinner size="large" />
-                </div>
+            <TextField
+              label="Search contents"
+              value={searchDebounce}
+              onChange={setSearchDebounce}
+              placeholder="Search by title, category, vendor, tags, or SKU..."
+              clearButton
+              onClearButtonClick={() => {
+                setSearchDebounce('');
+                setSearchQuery('');
+              }}
+              autoComplete="off"
+            />
+            <Filters
+              queryValue={searchQuery}
+              filters={enhancedFilters}
+              onQueryChange={setSearchQuery}
+              appliedFilters={[
+                ...(selectedStatuses.length > 0 ? [{
+                  key: 'status',
+                  label: `Status: ${selectedStatuses.join(', ')}`,
+                  onRemove: () => setSelectedStatuses([])
+                }] : []),
+                ...(taggedWith ? [{
+                  key: 'taggedWith',
+                  label: `Tags: ${taggedWith}`,
+                  onRemove: () => setTaggedWith('')
+                }] : []),
+                ...(priceRange[0] > minMaxPrices.min || priceRange[1] < minMaxPrices.max ? [{
+                  key: 'price',
+                  label: `Price: $${priceRange[0]} - $${priceRange[1]}`,
+                  onRemove: () => setPriceRange([minMaxPrices.min, minMaxPrices.max])
+                }] : []),
+                ...(sortOrder !== 'relevance' ? [{
+                  key: 'sort',
+                  label: `Sort: ${sortOrder}`,
+                  onRemove: () => setSortOrder('relevance')
+                }] : [])
+              ]}
+              onClearAll={() => {
+                setSearchDebounce('');
+                setSearchQuery('');
+                setSelectedStatuses([]);
+                setSelectedContentTypes([]);
+                setTaggedWith('');
+                setPriceRange([minMaxPrices.min, minMaxPrices.max]);
+                setSortOrder('relevance');
+              }}
+            />
+            <div className="mt-2">
+              <Text variant="bodyMd" tone="subdued">
+                {searchStats.filteredResults === searchStats.totalResults ?
+                  `${searchStats.totalResults} total items` :
+                  `Showing ${searchStats.filteredResults} of ${searchStats.totalResults} items`}
+                {Object.values(searchStats.appliedFilters).some(f => f && f.length) && (
+                  <span className="ml-1">
+                    (filtered by: {[searchStats.appliedFilters.search && 'search',
+                      searchStats.appliedFilters.status?.length && 'status',
+                      searchStats.appliedFilters.productType?.length && 'category',
+                      searchStats.priceRange?.length && 'price',
+                      searchStats.sortOrder !== 'relevance' && 'sort']
+                      .filter(Boolean).join(', ')})
+                  </span>
+                )}
+              </Text>
+            </div>
+          </BlockStack>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {isLoading ? (
+            <div className="flex justify-center items-center h-64">
+              <Spinner size="large" />
+            </div>
+          ) : (
+            <div className="flex flex-col max-w-8xl mx-auto px-4 sm:px-6 py-4">
+              {filteredContents.length > 0 ? (
+                <Grid
+                  columns={{
+                    xs: 6,
+                    sm: 6,
+                    md: 12,
+                    lg: 12,
+                    xl: 12
+                  }}
+                  gap={{
+                    xs: '20px',
+                    sm: '20px',
+                    md: '20px',
+                    lg: '20px'
+                  }}
+                >
+                  {filteredContents.map((item, index) => (
+                    <Grid.Cell
+                      key={item.id}
+                      columnSpan={{
+                        xs: 6,
+                        sm: 6,
+                        md: 6,
+                        lg: 3,
+                        xl: 3
+                      }}
+                    >
+                      <ContentCard
+                        key={item.id}
+                        content={item}
+                        loading={isLoading || isDeleting}
+                        deletedItem={deletedItem}
+                        onAction={handleContentAction}
+                      />
+                    </Grid.Cell>
+                  ))}
+                </Grid>
               ) : (
-                <div className="flex flex-col max-w-8xl mx-auto px-4 sm:px-6 py-4">
-                  {filteredProducts.length > 0 ? (
-                    <Grid
-                      columns={{
-                        xs: 6,  
-                        sm: 6,    
-                        md: 12,     
-                        lg: 12,    
-                        xl: 12      
-                      }}
-                      gap={{
-                        xs: '20px', 
-                        sm: '20px',    
-                        md: '20px',  
-                        lg: '20px'
-                      }}
-                    >
-                      {filteredProducts.map((item, index) => (
-                        <Grid.Cell
-                          key={item.id}
-                          columnSpan={{
-                            xs: 6,   
-                            sm: 6,    
-                            md: 6,     
-                            lg: 3,    
-                            xl: 3      
-                          }}
-                        >
-                        <ContentCard 
-                          key={item.id}
-                          content={item}
-                          loading={isLoading || isDeleting} 
-                          deletedItem={deletedItem}
-                          onAction={handleContentAction}
-                        />
-                        </Grid.Cell>
-                      ))}
-                    </Grid>
-                  ) : (
-                    <EmptyState
-                      image={placeholderImage}
-                      heading="No products found"
-                      action={{
-                        content: 'Publish your first product',
-                        onAction: handleCreateNewPublish,
-                      }}
-                    >
-                      <p>Get started by publishing your first product to begin tracking your inventory</p>
-                    </EmptyState>
-                  )}
-                  
-                  {filteredProducts.length < totalProducts && (
-                    <div className="flex justify-center py-6">
-                      <Button
-                        onClick={loadMoreProducts}
-                        loading={loadingMore}
-                        size="large"
-                        variant="secondary"
-                      >
-                        Load More Products
-                      </Button>
-                    </div>
-                  )}
+                <EmptyState
+                  heading="No items found"
+                  action={{
+                    content: 'Publish your first product',
+                    onAction: handleCreateNewContent,
+                  }}
+                >
+                  <p>Get started by publishing your first product to begin tracking your inventory</p>
+                </EmptyState>
+              )}
+
+              {filteredContents.length < totalContents && (
+                <div className="flex justify-center py-6">
+                  <Button
+                    onClick={loadMoreContents}
+                    loading={loadingMore}
+                    size="large"
+                    variant="secondary"
+                  >
+                    Load More Contents
+                  </Button>
                 </div>
               )}
             </div>
-            <Modal
-              open={confirmDeleteModal}
-              onClose={() => setConfirmDeleteModal(false)}
-              title="Confirm Delete"
-              primaryAction={{
-                content: 'Delete',
-                destructive: true,
-                onAction: async () => {
-                  setConfirmDeleteModal(false);
-                  await handleDelete(selectedContent?.contentId);
-                }
-              }}
-              secondaryActions={[{
-                content: 'Cancel',
-                onAction: () => setConfirmDeleteModal(false)
-              }]}
-            >
-              <Modal.Section>
-                <Text>
-                  Are you sure you want to delete "{selectedContent?.title || selectedContent?.article_title}"? 
-                  This action cannot be undone.
-                </Text>
-              </Modal.Section>
-            </Modal>
-          </div>
+          )}
         </div>
-      </Page>
-    </Frame>
+        <Modal
+          open={confirmDeleteModal}
+          onClose={() => setConfirmDeleteModal(false)}
+          title="Confirm Delete"
+          primaryAction={{
+            content: 'Delete',
+            destructive: true,
+            onAction: async () => {
+              setConfirmDeleteModal(false);
+              await handleDelete(selectedContent?.contentId);
+            }
+          }}
+          secondaryActions={[{
+            content: 'Cancel',
+            onAction: () => setConfirmDeleteModal(false)
+          }]}
+        >
+          <Modal.Section>
+            <Text>
+              Are you sure you want to delete "{selectedContent?.title || selectedContent?.article_title || selectedContent?.blog_title}"? 
+              This action cannot be undone.
+            </Text>
+          </Modal.Section>
+        </Modal>
+      </div>
+    </div>
+  ), [
+    searchDebounce,
+    searchQuery,
+    selectedStatuses,
+    taggedWith,
+    priceRange,
+    sortOrder,
+    filteredContents,
+    isLoading,
+    totalContents,
+    loadingMore,
+    confirmDeleteModal,
+    selectedContent,
+    isDeleting,
+    deletedItem,
+    handleCreateNewContent,
+    handleContentAction,
+    handleDelete,
+    loadMoreContents,
+  ]);
+
+  const pageMarkup = (
+    <Page
+      title="Content Publish History"
+      subtitle="View Publish Content Here"
+      fullWidth
+      backAction={{
+        content: 'Back To Main Page',
+        onAction: handleCreateNewContent,
+      }}
+      primaryAction={
+        <ThemeToggleButton id="theme-toogle-btn" onClick={toggleTheme} aria-label="Toggle theme">
+          <IconWrapper>
+            {theme === 'light' ? (
+              <>
+                <Icon source={MoonIcon} />
+                Dark mode
+              </>
+            ) : (
+              <>
+                <Icon source={SunIcon} />
+                Light mode
+              </>
+            )}
+          </IconWrapper>
+        </ThemeToggleButton>
+      }
+      secondaryActions={[
+        {
+          id: 'notification-bell',
+          content: <NotificationBell shopName={shopName} />,
+          onAction: () => {}, 
+        },
+        {
+          id: 'purchase-button',
+          content: 'Upgrade',
+          icon: CreditCardIcon,
+          onAction: () => onNavigateToBilling()
+        },
+        {
+          id: 'language-button',
+          content: 
+          <LanguageSelector 
+            IconComponent={LanguageIcon}
+            fullWidth={true}
+          />,
+          onAction: () => {}, 
+        },
+      ]}
+    >
+    <Layout>
+      {memoizedContent}
+    </Layout>
+  </Page>
+  );
+
+  return (
+    <AnimatePresence>
+      <LayoutContainer
+        className="py-10"
+        initial={false}
+        animate={isSidebarOpened ? 'expanded' : 'collapsed'}
+        variants={layoutVariants}
+        transition={{ type: 'tween', duration: 0.3 }}
+      >
+        {isSidebarOpened && (
+          <StyledOverlay
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            variants={overlayVariants}
+            transition={{ duration: 0.2 }}
+          />
+        )}
+        {pageMarkup}
+        {toastMarkup}
+        {showRedirectModal && (
+          <RedirectModal
+            content={selectedContent} 
+            isOpen={showRedirectModal}
+            onClose={() => setShowRedirectModal(false)}
+            onProceed={handleEdit}
+            loading={isSetupLoading}
+          />
+        )}
+      </LayoutContainer>
+    </AnimatePresence>
   );
 }
+
 

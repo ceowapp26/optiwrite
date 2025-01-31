@@ -41,6 +41,7 @@ const initializeShopify = async (shopName: string, accessToken: string): Promise
   const shopify = new Shopify({
     shopName,
     accessToken,
+    autoLimit: true 
   });
   try {
     await shopify.shop.get();
@@ -56,3 +57,4 @@ const initializeShopify = async (shopName: string, accessToken: string): Promise
 };
 
 export { shopify, initializeShopify };
+

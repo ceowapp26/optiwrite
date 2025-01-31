@@ -3,14 +3,12 @@ import { WebhookManager } from "@/utils/webhooks";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { DOMAIN } from '@/configs/sites';
-import { GoogleSessionCache, ShopifySessionCache } from '@/utils/cache';
+import { ShopifySessionCache } from '@/utils/cache';
 export const maxDuration = 60; 
 
 const MAX_COOKIE_SET_ATTEMPTS = 3;
 
 const RETRY_DELAY_MS = 100;
-
-const googleCache = new GoogleSessionCache();
 
 const shopifyCache = new ShopifySessionCache();
 
@@ -166,7 +164,6 @@ export async function POST(req: Request, res: Response) {
       JSON.parse(rawBody.toString())
     );
     if (topic === "APP_UNINSTALLED" || topic === "app/uninstalled") {
-      googleCache.clear();
       shopifyCache.clear();
       try {
         const response = NextResponse.json({ 

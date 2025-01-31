@@ -44,7 +44,7 @@ export const TEMPLATE_OPTIONS = [
     article_tags: 'blogging, content creation, SEO',
     article_template_suffix: null,
     article_title: 'Ultimate Guide to blogging',
-    category: 'blog',
+    category: 'blogArticle',
     keywords: ['blogging', 'content creation', 'SEO'],
     topic: 'blogging',
     layoutType: 'basic',
@@ -91,7 +91,7 @@ export const TEMPLATE_OPTIONS = [
     article_tags: 'product launch, marketing strategy',
     article_template_suffix: null,
     article_title: 'product Launch Strategy',
-    category: 'article',
+    category: 'blogArticle',
     keywords: ['product launch', 'marketing strategy'],
     topic: 'product Launch',
     layoutType: 'advanced',
@@ -108,36 +108,6 @@ export const TEMPLATE_OPTIONS = [
     blog_tags: 'SEO, e-commerce',
     blog_template_suffix: null,
     blog_title: 'SEO Best Practices for E-commerce',
-    article_author: 'Emily Johnson',
-    article_body_html: `
-      <h1>SEO Best Practices for E-commerce</h1>
-      <img src="https://source.unsplash.com/featured/?seo" alt="E-commerce SEO" style="width:100%; height:auto;">
-      <p>In the competitive world of e-commerce, SEO is crucial for visibility. This article provides actionable tips for optimizing your product pages:</p>
-      
-      <h2>1. Keyword Research</h2>
-      <p>Identify relevant keywords that potential customers are searching for. Use tools like SEMrush or Ahrefs to find high-volume keywords.</p>
-      
-      <h2>2. Optimize product Titles and Descriptions</h2>
-      <p>Incorporate keywords naturally into your product titles and descriptions. Ensure they are informative and engaging.</p>
-      
-      <h2>3. Use High-Quality Images</h2>
-      <p>Images should be optimized for web use. Use descriptive file names and alt tags to improve SEO.</p>
-      
-      <h2>4. Improve Site Speed</h2>
-      <p>A fast-loading site enhances user experience and improves search rankings. Use tools like Google PageSpeed Insights to analyze and optimize your site speed.</p>
-      
-      <h2>Conclusion</h2>
-      <p>By implementing these SEO best practices, you can enhance your product visibility and drive more traffic to your online store.</p>
-    `,
-    article_handle: 'seo-best-practices-for-ecommerce',
-    article_image: 'https://source.unsplash.com/featured/?ecommerce',
-    article_metafield: [],
-    article_summary_html: `
-      <p>This article provides actionable SEO tips for e-commerce businesses, helping you enhance your product visibility online.</p>
-    `,
-    article_tags: 'SEO, e-commerce',
-    article_template_suffix: null,
-    article_title: 'SEO Best Practices for E-commerce',
     category: 'blog',
     keywords: ['SEO', 'e-commerce', 'visibility'],
     topic: 'E-commerce SEO',
@@ -147,14 +117,6 @@ export const TEMPLATE_OPTIONS = [
   {
     id: '25d43ac1-b9d8-450b-b93c-4bdb9a2bb9ff',
     icon: 'NoteIcon',
-    blog_commentable: 'yes',
-    blog_feedburner: null,
-    blog_feedburner_location: null,
-    blog_handle: 'creating-engaging-product-descriptions',
-    blog_metafield: [],
-    blog_tags: 'product descriptions, copywriting',
-    blog_template_suffix: null,
-    blog_title: 'Creating Engaging product Descriptions',
     article_author: 'Michael Brown',
     article_body_html: `
       <h1>Creating Engaging product Descriptions</h1>
@@ -185,7 +147,7 @@ export const TEMPLATE_OPTIONS = [
     article_tags: 'product descriptions, copywriting',
     article_template_suffix: null,
     article_title: 'Creating Engaging product Descriptions',
-    category: 'blog',
+    category: 'article',
     keywords: ['product descriptions', 'copywriting'],
     topic: 'product Descriptions',
     layoutType: 'list',
@@ -194,14 +156,6 @@ export const TEMPLATE_OPTIONS = [
   {
     id: '1fe2fd0f-3968-4e0b-8ab6-e7a7f79a27a0',
     icon: 'NoteIcon',
-    blog_commentable: 'yes',
-    blog_feedburner: null,
-    blog_feedburner_location: null,
-    blog_handle: 'the-art-of-storytelling-in-marketing',
-    blog_metafield: [],
-    blog_tags: 'storytelling, marketing',
-    blog_template_suffix: null,
-    blog_title: 'The Art of Storytelling in Marketing',
     article_author: 'Sarah Wilson',
     article_body_html: `
       <h1>The Art of Storytelling in Marketing</h1>
@@ -249,36 +203,6 @@ export const TEMPLATE_OPTIONS = [
     blog_tags: 'online presence, digital marketing',
     blog_template_suffix: null,
     blog_title: 'Maximizing Your Online Presence',
-    article_author: 'David Lee',
-    article_body_html: `
-      <h1>Maximizing Your Online Presence</h1>
-      <img src="https://source.unsplash.com/featured/?digital-marketing" alt="Online Presence" style="width:100%; height:auto;">
-      <p>In today’s digital landscape, having a strong online presence is essential for success. This article discusses strategies for enhancing your brand visibility:</p>
-      
-      <h2>1. Optimize Your Website</h2>
-      <p>Your website is often the first point of contact. Ensure it is user-friendly, mobile-responsive, and optimized for search engines.</p>
-      
-      <h2>2. Leverage Social Media</h2>
-      <p>Choose the right platforms for your audience and engage consistently. Share valuable content and interact with your followers.</p>
-      
-      <h2>3. Content Marketing</h2>
-      <p>Create high-quality content that provides value to your audience. This can include blogs, videos, podcasts, and infographics.</p>
-      
-      <h2>4. Email Marketing</h2>
-      <p>Build an email list and send regular newsletters with updates, promotions, and valuable content to keep your audience engaged.</p>
-      
-      <h2>Conclusion</h2>
-      <p>By implementing these strategies, you can enhance your brand’s online presence and attract more customers.</p>
-    `,
-    article_handle: 'maximizing-your-online-presence',
-    article_image: 'https://source.unsplash.com/featured/?digital-marketing',
-    article_metafield: [],
-    article_summary_html: `
-      <p>This article provides insights on enhancing your brand’s online presence through effective marketing strategies.</p>
-    `,
-    article_tags: 'online presence, digital marketing',
-    article_template_suffix: null,
-    article_title: 'Maximizing Your Online Presence',
     category: 'blog',
     keywords: ['online presence', 'digital marketing'],
     topic: 'Online Presence',
@@ -288,14 +212,6 @@ export const TEMPLATE_OPTIONS = [
   {
     id: 'f3d4ebff-3a2d-43d2-bfb0-f73576c22e57',
     icon: 'NoteIcon',
-    blog_commentable: 'yes',
-    blog_feedburner: null,
-    blog_feedburner_location: null,
-    blog_handle: 'crafting-the-perfect-email-campaign',
-    blog_metafield: [],
-    blog_tags: 'email marketing, campaigns',
-    blog_template_suffix: null,
-    blog_title: 'Crafting the Perfect Email Campaign',
     article_author: 'Laura Green',
     article_body_html: `
       <h1>Crafting the Perfect Email Campaign</h1>
@@ -343,36 +259,6 @@ export const TEMPLATE_OPTIONS = [
     blog_tags: 'brand identity, branding',
     blog_template_suffix: null,
     blog_title: 'Building a Strong Brand Identity',
-    article_author: 'Chris Black',
-    article_body_html: `
-      <h1>Building a Strong Brand Identity</h1>
-      <img src="https://source.unsplash.com/featured/?brand-identity" alt="Brand Identity" style="width:100%; height:auto;">
-      <p>A strong brand identity is crucial for standing out in a crowded market. This article discusses the key elements of brand identity:</p>
-      
-      <h2>1. Define Your Brand Values</h2>
-      <p>Identify the core values that your brand stands for. These values should guide your messaging and actions.</p>
-      
-      <h2>2. Create a Memorable Logo</h2>
-      <p>Your logo is often the first impression of your brand. Ensure it is unique, memorable, and reflective of your brand’s personality.</p>
-      
-      <h2>3. Develop a Consistent Voice</h2>
-      <p>Your brand’s voice should be consistent across all platforms. Whether it’s formal, casual, or playful, ensure it aligns with your brand identity.</p>
-      
-      <h2>4. Engage with Your Audience</h2>
-      <p>Build relationships with your audience through social media, email, and community engagement. Authentic interactions foster loyalty.</p>
-      
-      <h2>Conclusion</h2>
-      <p>By establishing a strong brand identity, you can create a lasting impression and build trust with your audience.</p>
-    `,
-    article_handle: 'building-a-strong-brand-identity',
-    article_image: 'https://source.unsplash.com/featured/?branding',
-    article_metafield: [],
-    article_summary_html: `
-      <p>This article discusses the importance of brand identity in business and how to create a memorable brand.</p>
-    `,
-    article_tags: 'brand identity, branding',
-    article_template_suffix: null,
-    article_title: 'Building a Strong Brand Identity',
     category: 'blog',
     keywords: ['brand identity', 'branding'],
     topic: 'Brand Identity',
@@ -382,14 +268,6 @@ export const TEMPLATE_OPTIONS = [
   {
     id: 'bbf7e8a5-0cc1-4531-b244-2f7f8da22c9b',
     icon: 'NoteIcon',
-    blog_commentable: 'yes',
-    blog_feedburner: null,
-    blog_feedburner_location: null,
-    blog_handle: 'effective-social-media-strategies',
-    blog_metafield: [],
-    blog_tags: 'social media, engagement',
-    blog_template_suffix: null,
-    blog_title: 'Effective Social Media Strategies',
     article_author: 'Anna White',
     article_body_html: `
       <h1>Effective Social Media Strategies</h1>
@@ -437,36 +315,6 @@ export const TEMPLATE_OPTIONS = [
     blog_tags: 'customer experience, satisfaction',
     blog_template_suffix: null,
     blog_title: 'Creating a Customer-Centric Experience',
-    article_author: 'Tom Harris',
-    article_body_html: `
-      <h1>Creating a Customer-Centric Experience</h1>
-      <img src="https://source.unsplash.com/featured/?customer-experience" alt="Customer Experience" style="width:100%; height:auto;">
-      <p>Customer satisfaction is key to business success. This article discusses how to create a customer-centric experience:</p>
-      
-      <h2>1. Understand Customer Needs</h2>
-      <p>Conduct surveys and gather feedback to understand what your customers value most.</p>
-      
-      <h2>2. Personalize Interactions</h2>
-      <p>Use customer data to tailor interactions and recommendations, making customers feel valued and understood.</p>
-      
-      <h2>3. Provide Exceptional Support</h2>
-      <p>Ensure your customer support team is well-trained and equipped to handle inquiries efficiently and empathetically.</p>
-      
-      <h2>4. Continuously Improve</h2>
-      <p>Regularly review customer feedback and make necessary adjustments to enhance the customer experience.</p>
-      
-      <h2>Conclusion</h2>
-      <p>By prioritizing customer needs, you can create a positive experience that fosters loyalty and drives repeat business.</p>
-    `,
-    article_handle: 'creating-a-customer-centric-experience',
-    article_image: 'https://source.unsplash.com/featured/?customer-service',
-    article_metafield: [],
-    article_summary_html: `
-      <p>This article explores how to create a customer-focused experience that enhances satisfaction and loyalty.</p>
-    `,
-    article_tags: 'customer experience, satisfaction',
-    article_template_suffix: null,
-    article_title: 'Creating a Customer-Centric Experience',
     category: 'blog',
     keywords: ['customer experience', 'satisfaction'],
     topic: 'Customer Experience',
@@ -476,14 +324,6 @@ export const TEMPLATE_OPTIONS = [
   {
     id: '75fc1b9f-7f42-45a1-98a9-df7e8f4e8fa2',
     icon: 'NoteIcon',
-    blog_commentable: 'yes',
-    blog_feedburner: null,
-    blog_feedburner_location: null,
-    blog_handle: 'the-future-of-ecommerce',
-    blog_metafield: [],
-    blog_tags: 'e-commerce, trends',
-    blog_template_suffix: null,
-    blog_title: 'The Future of E-commerce',
     article_author: 'Rachel Adams',
     article_body_html: `
       <h1>The Future of E-commerce</h1>
@@ -531,36 +371,6 @@ export const TEMPLATE_OPTIONS = [
     blog_tags: 'user-generated content, marketing',
     blog_template_suffix: null,
     blog_title: 'Leveraging User-Generated Content',
-    article_author: 'Sophia Turner',
-    article_body_html: `
-      <h1>Leveraging User-Generated Content</h1>
-      <img src="https://source.unsplash.com/featured/?user-generated-content" alt="User-Generated Content" style="width:100%; height:auto;">
-      <p>User-generated content (UGC) can significantly enhance your marketing efforts. This article discusses how to encourage and utilize UGC:</p>
-      
-      <h2>1. Encourage Customers to Share</h2>
-      <p>Incentivize customers to share their experiences with your products on social media. Consider running contests or offering discounts.</p>
-      
-      <h2>2. Showcase UGC on Your Platforms</h2>
-      <p>Feature user-generated content on your website and social media channels. This builds community and trust among potential customers.</p>
-      
-      <h2>3. Engage with Your Audience</h2>
-      <p>Respond to and engage with customers who share content. This fosters a sense of community and encourages more UGC.</p>
-      
-      <h2>4. Monitor and Analyze</h2>
-      <p>Track the performance of UGC campaigns. Analyze what types of content resonate most with your audience.</p>
-      
-      <h2>Conclusion</h2>
-      <p>By leveraging user-generated content, you can enhance your brand’s authenticity and build stronger connections with your audience.</p>
-    `,
-    article_handle: 'leveraging-user-generated-content',
-    article_image: 'https://source.unsplash.com/featured/?ugc',
-    article_metafield: [],
-    article_summary_html: `
-      <p>This article highlights the benefits of user-generated content and how to leverage it for your brand.</p>
-    `,
-    article_tags: 'user-generated content, marketing',
-    article_template_suffix: null,
-    article_title: 'Leveraging User-Generated Content',
     category: 'blog',
     keywords: ['user-generated content', 'marketing'],
     topic: 'User-Generated Content',
@@ -570,14 +380,6 @@ export const TEMPLATE_OPTIONS = [
   {
     id: '1ed3df64-4a1c-47c4-9d7e-7049072ed3f1',
     icon: 'NoteIcon',
-    blog_commentable: 'yes',
-    blog_feedburner: null,
-    blog_feedburner_location: null,
-    blog_handle: 'creating-compelling-visual-content',
-    blog_metafield: [],
-    blog_tags: 'visual content, marketing',
-    blog_template_suffix: null,
-    blog_title: 'Creating Compelling Visual Content',
     article_author: 'Liam Scott',
     article_body_html: `
       <h1>Creating Compelling Visual Content</h1>
@@ -625,36 +427,6 @@ export const TEMPLATE_OPTIONS = [
     blog_tags: 'target audience, research',
     blog_template_suffix: null,
     blog_title: 'Understanding Your Target Audience',
-    article_author: 'Olivia King',
-    article_body_html: `
-      <h1>Understanding Your Target Audience</h1>
-      <img src="https://source.unsplash.com/featured/?target-audience" alt="Target Audience" style="width:100%; height:auto;">
-      <p>Knowing your target audience is crucial for effective marketing. This article discusses how to conduct audience research:</p>
-      
-      <h2>1. Conduct Surveys and Interviews</h2>
-      <p>Gather direct feedback from your audience through surveys and interviews. This provides valuable insights into their preferences and pain points.</p>
-      
-      <h2>2. Create Buyer Personas</h2>
-      <p>Develop detailed buyer personas that represent your ideal customers. Include demographics, interests, and buying behaviors.</p>
-      
-      <h2>3. Analyze Competitor Audiences</h2>
-      <p>Study your competitors to understand their audience. Identify gaps in the market that you can fill.</p>
-      
-      <h2>4. Monitor Engagement Metrics</h2>
-      <p>Use analytics tools to track engagement metrics on your website and social media. This data can help refine your understanding of your audience.</p>
-      
-      <h2>Conclusion</h2>
-      <p>By understanding your target audience, you can tailor your marketing efforts to meet their needs and drive conversions.</p>
-    `,
-    article_handle: 'understanding-your-target-audience',
-    article_image: 'https://images.unsplash.com/photo-1731636117974-5eab41e59504?q=80&w=1932&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D',
-    article_metafield: [],
-    article_summary_html: `
-      <p>This article provides insights on audience research and segmentation to enhance your marketing efforts.</p>
-    `,
-    article_tags: 'target audience, research',
-    article_template_suffix: null,
-    article_title: 'Understanding Your Target Audience',
     category: 'blog',
     keywords: ['target audience', 'research'],
     topic: 'Target Audience',
@@ -664,14 +436,6 @@ export const TEMPLATE_OPTIONS = [
   {
     id: '2e6e9b62-5ec0-4e5d-97cc-f0a98f84b1c6',
     icon: 'NoteIcon',
-    blog_commentable: 'yes',
-    blog_feedburner: null,
-    blog_feedburner_location: null,
-    blog_handle: 'the-importance-of-customer-feedback',
-    blog_metafield: [],
-    blog_tags: 'customer feedback, improvement',
-    blog_template_suffix: null,
-    blog_title: 'The Importance of Customer Feedback',
     article_author: 'Emma Davis',
     article_body_html: `
       <h1>The Importance of Customer Feedback</h1>
@@ -718,37 +482,7 @@ export const TEMPLATE_OPTIONS = [
     blog_metafield: [],
     blog_tags: 'content strategy, planning',
     blog_template_suffix: null,
-    blog_title: 'Building an Effective Content Strategy',
-    article_author: 'James Wilson',
-    article_body_html: `
-      <h1>Building an Effective Content Strategy</h1>
-      <img src="https://source.unsplash.com/featured/?content-strategy" alt="Content Strategy" style="width:100%; height:auto;">
-      <p>A well-defined content strategy is essential for achieving your marketing goals. This article outlines the steps to create a content strategy:</p>
-      
-      <h2>1. Set Clear Goals</h2>
-      <p>Define what you want to achieve with your content. Whether it’s increasing brand awareness, generating leads, or driving sales, having clear goals is crucial.</p>
-      
-      <h2>2. Understand Your Audience</h2>
-      <p>Conduct research to understand your audience’s needs, preferences, and pain points. Tailor your content to address these factors.</p>
-      
-      <h2>3. Plan Your Content Types</h2>
-      <p>Decide on the types of content you will create, such as blog posts, videos, infographics, or podcasts. Diversifying content types can engage different audience segments.</p>
-      
-      <h2>4. Create a Content Calendar</h2>
-      <p>Develop a content calendar to schedule your content production and publication. This helps maintain consistency and organization.</p>
-      
-      <h2>Conclusion</h2>
-      <p>By following these steps, you can develop a content strategy that drives results and aligns with your business objectives.</p>
-    `,
-    article_handle: 'building-an-effective-content-strategy',
-    article_image: 'https://source.unsplash.com/featured/?strategy',
-    article_metafield: [],
-    article_summary_html: `
-      <p>This article outlines the steps to develop a successful content strategy that drives results.</p>
-    `,
-    article_tags: 'content strategy, planning',
-    article_template_suffix: null,
-    article_title: 'Building an Effective Content Strategy',
+    blog_title: 'Building an Effective Content Strategy FOR TESTING',
     category: 'blog',
     keywords: ['content strategy', 'planning'],
     topic: 'Content Strategy',
@@ -758,14 +492,6 @@ export const TEMPLATE_OPTIONS = [
   {
     id: '0b729cc2-4c2d-4298-9a52-bac55ec33889',
     icon: 'NoteIcon',
-    blog_commentable: 'yes',
-    blog_feedburner: null,
-    blog_feedburner_location: null,
-    blog_handle: 'creating-a-seamless-omnichannel-experience',
-    blog_metafield: [],
-    blog_tags: 'omnichannel, customer experience',
-    blog_template_suffix: null,
-    blog_title: 'Creating a Seamless Omnichannel Experience',
     article_author: 'Sophia Turner',
     article_body_html: `
       <h1>Creating a Seamless Omnichannel Experience</h1>
@@ -802,7 +528,6 @@ export const TEMPLATE_OPTIONS = [
     layoutType: 'basic',
     isPremium: false,
   },
-  // Random product Item
   {
     id: '12345678-1234-1234-1234-123456789012',
     type: 'product',

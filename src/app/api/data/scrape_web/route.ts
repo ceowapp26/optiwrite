@@ -138,7 +138,8 @@ export async function POST(req: Request): Promise<Response> {
       text: successfulResults
         .map(result => result.text)
         .filter(text => text.length >= 50)
-        .join('\n\n'),
+        .join('\n\n')
+        .slice(0, 4000),
       medias: {
         images: [...new Set(successfulResults.flatMap(result => result.medias.images))],
         videos: [...new Set(successfulResults.flatMap(result => result.medias.videos))],

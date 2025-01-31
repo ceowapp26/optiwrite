@@ -1,9 +1,12 @@
 import { StoreApi, create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { FunctionSlice, createFunctionSlice } from './functionsSlice';
+import { PromptSlice, createPromptSlice } from './promptsSlice';
 import { migrateV0 } from './migrate';
 
-export type StoreState = FunctionSlice;
+export type StoreState = 
+  FunctionSlice & 
+  PromptSlice;
 
 export type StoreSlice<T> = (
   set: StoreApi<StoreState>['setState'],
@@ -16,15 +19,17 @@ export const createPartializedState = (state: StoreState) => ({
   insertBelowAI: state.insertBelowAI,
   insertLeftAI: state.insertLeftAI,
   insertRightAI: state.insertRightAI,
+  prompts: state.prompts,
 });
 
-export const useContentStore = create<StoreState>()(
+export const useZustandStore = create<StoreState>()(
   persist(
     (set, get) => ({
       ...createFunctionSlice(set, get),
+      ...createPromptSlice(set, get),
     }),
     {
-      name: 'optiwrite-editor',
+      name: 'optiwrite-store',
       partialize: (state) => createPartializedState(state),
       version: 3,
       migrate: (persistedState, version) => {

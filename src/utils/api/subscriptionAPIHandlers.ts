@@ -38,6 +38,7 @@ export class SubscriptionService {
     shop: string,
     sessionToken: string,
     canceled: boolean = false,
+    email: string
   ): Promise<BillingEvent> {
     try {
       this.setState({ loading: true, error: null });
@@ -49,6 +50,7 @@ export class SubscriptionService {
             shop,
             planName,
             canceled,
+            email
           },
           headers
         }
@@ -74,7 +76,10 @@ export class SubscriptionService {
     event: BillingEvent,
     canceled: boolean = false,
     cancelReason?: string,
-    email?: string
+    email?: string,
+    subscriptionId?: string,
+    prorate: boolean = false,
+    status?: SubscriptionStatus
   ) {
     try {
       this.setState({ loading: true, error: null });
@@ -89,6 +94,9 @@ export class SubscriptionService {
           canceled,
           cancelReason, 
           email,
+          subscriptionId,
+          prorate,
+          status
         },
         { headers }
       );

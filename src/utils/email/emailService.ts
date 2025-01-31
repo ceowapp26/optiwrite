@@ -1,5 +1,6 @@
 import nodemailer, { Transporter } from 'nodemailer';
 import { BillingEmailTemplates } from './emailTemplates';
+import { SubscriptionStatus, NotificationType } from '@prisma/client';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -270,6 +271,100 @@ export class EmailService {
       if (error instanceof EmailServiceError) throw error;
       throw new EmailServiceError(
         'Failed to send trial ending email',
+        'TEMPLATE_ERROR',
+        error
+      );
+    }
+  }
+
+  public async sendSubscriptionEmail(
+    to: string,
+    data: BillingEmailData,
+    status: SubscriptionStatus
+  ): Promise<void> {
+    let emailTemplate: EmailTemplate;
+    switch (status) {
+      case SubscriptionStatus.ACTIVE:
+        emailTemplate = BillingEmailTemplates.getSubscriptionActivatedTemplate(data, this.theme);
+        break;
+      case SubscriptionStatus.TRIAL:
+        emailTemplate = BillingEmailTemplates.getSubscriptionTrialActivatedTemplate(data, this.theme);
+        break;
+      case SubscriptionStatus.PRORATE_CANCELED:
+        emailTemplate = BillingEmailTemplates.getSubscriptionProrateCancelledTemplate(data, this.theme);
+        break;
+      case SubscriptionStatus.RENEWING:
+        emailTemplate = BillingEmailTemplates.getSubscriptionRenewingTemplate(data, this.theme);
+        break;
+      case SubscriptionStatus.DECLINED:
+        emailTemplate = BillingEmailTemplates.getSubscriptionDeclinedTemplate(data, this.theme);
+        break;
+      case SubscriptionStatus.EXPIRED:
+        emailTemplate = BillingEmailTemplates.getSubscriptionExpiredTemplate(data, this.theme);
+        break;
+      case SubscriptionStatus.PENDING:
+        emailTemplate = BillingEmailTemplates.getSubscriptionPendingTemplate(data, this.theme);
+        break;
+      case SubscriptionStatus.ON_HOLD:
+        emailTemplate = BillingEmailTemplates.getSubscriptionOnholdTemplate(data, this.theme);
+        break;
+      case SubscriptionStatus.FROZEN:
+        emailTemplate = BillingEmailTemplates.getSubscriptionFrozenTemplate(data, this.theme);
+        break;
+      case SubscriptionStatus.RENEWING:
+        emailTemplate = BillingEmailTemplates.getSubscriptionRenewingTemplate(data, this.theme);
+        break;
+      case SubscriptionStatus.TRIAL_ENDING:
+        emailTemplate = BillingEmailTemplates.getSubscriptionTrialEndingTemplate(data, this.theme);
+        break;
+      case SubscriptionStatus.TRIAL_ENDED:
+        emailTemplate = BillingEmailTemplates.getSubscriptionTrialEndedActivationTemplate(data, this.theme);
+        break;
+      default:
+        console.warn(`Unexpected subscription status in sendSubscriptionEmail: ${status}`);
+        return;
+    }
+    try {
+    await this.sendNodemailerEmail(to, emailTemplate.subject, emailTemplate.html);
+    } catch (error) {
+      if (error instanceof EmailServiceError) throw error;
+      throw new EmailServiceError(
+        'Failed to send subscription email',
+        'TEMPLATE_ERROR',
+        error
+      );
+    }
+  }
+
+  public async sendUsageEmail(
+    to: string,
+    data: BillingEmailData,
+    status: NotificationType
+  ): Promise<void> {
+    let emailTemplate: EmailTemplate;
+    switch (status) {
+      case NotificationType.USAGE_OVER_LIMIT:
+        emailTemplate = BillingEmailTemplates.getUsageLimitOverTemplate(data, this.theme);
+        break;
+      case NotificationType.USAGE_APPROACHING_LIMIT:
+        emailTemplate = BillingEmailTemplates.getUsageLimitApproachingTemplate(data, this.theme);
+        break;
+      case NotificationType.PACKAGE_EXPIRED:
+        emailTemplate = BillingEmailTemplates.getPackageExpiredWithOverageTemplate(data, this.theme);
+        break;
+      case NotificationType.SUBSCRIPTION_EXPIRED:
+        emailTemplate = BillingEmailTemplates.getSubscriptionExpiredWithOverageTemplate(data, this.theme);
+        break;
+      default:
+        console.warn(`Unexpected subscription status in sendSubscriptionEmail: ${status}`);
+        return;
+    }
+    try {
+    await this.sendNodemailerEmail(to, emailTemplate.subject, emailTemplate.html);
+    } catch (error) {
+      if (error instanceof EmailServiceError) throw error;
+      throw new EmailServiceError(
+        'Failed to send usage email',
         'TEMPLATE_ERROR',
         error
       );

@@ -1,12 +1,12 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useCallback, useMemo, memo, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo, ReactNode, memo } from 'react';
 import { useShopifySession, useAuthRedirect } from '@/hooks/useShopifyAuth';
+import { useProcessUninstall } from '@/hooks/useProcessUninstall';
+import { useProcessSubscription } from '@/hooks/useProcessSubscription';
 import { SessionContextValue, AppSession } from '@/types/auth';
 import { PageLoader } from "@/components/PageLoader";
-import { useAppDispatch, useAppSelector } from "@/hooks/useLocalStore";
 import { storeSession, selectSession } from "@/stores/features/authSlice";
-import { useProcessUninstall } from '@/hooks/useProcessUninstall';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { Card, Text, BlockStack, Box, Banner } from '@shopify/polaris';
 import LoadingScreen from "@/components/LoadingScreen";
@@ -15,7 +15,6 @@ import AuthRedirectScreen from "@/components/AuthRedirectScreen";
 interface SessionContextData {
   session: SessionContextValue;
   appSession: AppSession;
-  isAdminUser: boolean;
 }
 
 const SessionContext = createContext<SessionContextData | null>(null);
@@ -39,17 +38,24 @@ const SessionProvider = React.memo(({
   requireAuth = true,
   requireShopify = true,
 }: SessionProviderProps) => {
-  const pathname = usePathname();
-  const dispatch = useAppDispatch();
-  const uninstall = useProcessUninstall();
   const authRedirect = useAuthRedirect();
   const shopifyState = useShopifySession();
+  const uninstall = useProcessUninstall();
+  const processSubscription = useProcessSubscription();
   const [error, setError] = useState<string | null>(null);
+  const [isSignedOut, setIsSignedOut] = useState(false);
   const isLoading = useMemo(() => 
     shopifyState.loading,
     [shopifyState.loading]
   );
+
   const sessionError = useMemo(() => {
+    if (shopifyState.error) {
+      return {
+        type: 'UNKNOWN',
+        message: `Multiple authentication errors: ${shopifyState.error.message}`
+      };
+    }
     return shopifyState.error || null;
   }, [shopifyState.error]);
   const sessionValue = useMemo<SessionContextValue>(() => ({
@@ -70,9 +76,12 @@ const SessionProvider = React.memo(({
   const appSession = useMemo<AppSession>(() => ({
     shopName: sessionValue?.shopify?.offline?.shop,
     shopifyOfflineAccessToken: sessionValue?.shopify?.offline?.accessToken,
-    shopifyUserEmail: sessionValue?.shopify?.online?.onlineAccessInfo?.associated_user?.email,
     shopifyOnlineAccessToken: sessionValue?.shopify?.online?.accessToken,
+    shopifyUserEmail: sessionValue?.shopify?.online?.onlineAccessInfo?.associated_user?.email,
     shopifyUserId: sessionValue?.shopify?.online?.onlineAccessInfo?.associated_user?.id,
+    userIds: {
+      shopifyUserId: sessionValue?.shopify?.online?.onlineAccessInfo?.associated_user?.id
+    }
   }), [
     sessionValue?.shopify?.offline?.shop,
     sessionValue?.shopify?.offline?.accessToken,
@@ -80,16 +89,10 @@ const SessionProvider = React.memo(({
     sessionValue?.shopify?.online?.onlineAccessInfo?.associated_user?.email,
     sessionValue?.shopify?.online?.onlineAccessInfo?.associated_user?.id,
   ]);
-
-  const isAdminUser = useMemo(() => 
-    Boolean(sessionValue?.shopify?.online?.onlineAccessInfo?.associated_user?.role === 'admin'),
-    [sessionValue?.shopify?.online?.onlineAccessInfo?.associated_user?.role]
-  );
   const contextData = useMemo<SessionContextData>(() => ({
     session: sessionValue,
     appSession,
-    isAdminUser
-  }), [sessionValue, appSession, isAdminUser]);
+  }), [sessionValue, appSession]);
 
   const validateAuth = useCallback(async () => {
     if (!requireAuth || isLoading) return;
@@ -164,6 +167,4 @@ export const withAuthWrapper = <P extends { session?: SessionContextValue; appSe
 SessionProvider.displayName = 'SessionProvider';
 
 export default SessionProvider;
-
-
 

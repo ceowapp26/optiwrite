@@ -4,6 +4,8 @@ import { handleShopifyInitError } from '@/utils/api/customAPIErrorHandlers';
 import { ShopifySessionManager } from '@/utils/storage';
 import { GenericAPIErrorHandler } from '@/utils/api';
 import { ContentCategory, CATEGORY } from '@/types/content';
+import { ContentOperations } from '@/utils/content/contentOperation';
+import { shopify } from '@/lib/shopify';
 
 export const dynamic = 'force-dynamic';
 
@@ -186,13 +188,11 @@ async function fetchContentWithRetry(
   limit: number,
 ): Promise<any> {
   try {
-    const shopifyProducts = await fetchAllProducts(shopify);
-    const shopifyBlogs = await retryWithBackoff(() => shopify.blog.list());
-    let shopifyArticles: ShopifyArticle[] = [];
-    for (const blog of shopifyBlogs) {
-      const articles = await fetchBlogArticles(shopify, blog.id);
-      shopifyArticles.push(...articles);
-    }
+    const [shopifyProducts, shopifyBlogs] = await Promise.all([
+      shopify.product.list(),
+      shopify.blog.list(),
+    ]);
+    const shopifyArticles = await fetchArticlesWithRateLimit(shopify, shopifyBlogs);
     const totalShopifyContent = shopifyProducts.length + shopifyBlogs.length + shopifyArticles.length;
     if (totalShopifyContent < limit) {
       const dbContent = await ContentManager.getUserContentHistory(shopName, page, totalShopifyContent);
@@ -203,7 +203,7 @@ async function fetchContentWithRetry(
     let totalFound = 0;
     let currentLimit = limit;
     let multiplier = 1;
-    while (multiplier <= 8 && totalFound < limit) {
+    while (multiplier <= 4 && totalFound < limit) {
       dbContent = await ContentManager.getUserContentHistory(shopName, page, currentLimit);
       const groupedContent = groupContentByType(dbContent);
       totalFound = countMatchingContent(
@@ -224,6 +224,22 @@ async function fetchContentWithRetry(
   } catch (error) {
     throw new Error(`Failed to fetch content: ${error.message}`);
   }
+}
+
+async function fetchArticlesWithRateLimit(shopify: any, blogs: any[]): Promise<ShopifyArticle[]> {
+  const BATCH_SIZE = 3;
+  const DELAY_MS = 2000; 
+  let allArticles: ShopifyArticle[] = [];
+  for (let i = 0; i < blogs.length; i += BATCH_SIZE) {
+    const batch = blogs.slice(i, i + BATCH_SIZE);
+    const batchPromises = batch.map(blog => shopify.article.list(blog.id));
+    const batchResults = await Promise.all(batchPromises);
+    allArticles.push(...batchResults.flat());
+    if (i + BATCH_SIZE < blogs.length) {
+      await new Promise(resolve => setTimeout(resolve, DELAY_MS));
+    }
+  }
+  return allArticles;
 }
 
 function countMatchingContent(
@@ -288,46 +304,101 @@ function processContentResponse(
     total: totalContent.total,
     products: groupedContent.products,
     blogs: groupedContent.blogs,
-    articles: enhancedArticles
+    articles: groupedContent.articles
   };
 }
 
-function groupContentByType(dbContent: any[]) {
+const dbContentsCache = new Map<string, any>();
+const shopifyContentCache = new Map<string, any>();
+
+async function getGroupedContent(
+  contentOperations: any,
+  shopName: string,
+  pagination: number,
+  limit: number,
+): Promise<any> {
+  try {
+    const dbContent = await ContentManager.getUserContentHistory(shopName, pagination, limit);
+    return processDbContentResponse(dbContent, contentOperations, pagination);
+  } catch (error) {
+    throw new Error(`Failed to fetch content: ${error.message}`);
+  }
+}
+
+async function verifyShopifyContent(content: any, contentOperations: any): Promise<any | null> {
+  const cacheKey = `${content.category}_${content.contentId}`;
+  if (shopifyContentCache.has(cacheKey)) {
+    return shopifyContentCache.get(cacheKey);
+  }
+  try {
+    let shopifyContent = null;
+    switch (content.category) {
+      case ContentCategory.PRODUCT:
+        shopifyContent = await contentOperations.retrieveProduct(content.contentId);
+        break;
+      case ContentCategory.BLOG:
+        shopifyContent = await contentOperations.retrieveBlog(content.contentId);
+        break;
+      case ContentCategory.ARTICLE:
+        shopifyContent = await contentOperations.retrieveArticle(content.contentId);
+        break;
+    }
+    if (shopifyContent) {
+      shopifyContentCache.set(cacheKey, shopifyContent);
+    }
+    return shopifyContent;
+  } catch (error) {
+    console.warn(`Content not found in Shopify: ${content.category} ${content.contentId}`);
+    return null;
+  }
+}
+
+async function processDbContentResponse(dbContent: any[], contentOperations: any, pagination: number) {
+  const groupedContent = await groupContentByType(dbContent, contentOperations, pagination);
+  return {
+    products: groupedContent.products,
+    blogs: groupedContent.blogs,
+    articles: groupedContent.articles
+  };
+}
+
+async function groupContentByType(dbContent: any[], contentOperations: any, pagination: number) {
   const groupedContent = {
     products: [],
     blogs: [],
     articles: []
   };
-  dbContent.forEach(content => {
-    switch (content.category) {
+  if (pagination === 1) {
+    dbContentsCache.clear();
+    shopifyContentCache.clear();
+  }
+  for (const content of dbContent) {
+    const shopifyContent = await verifyShopifyContent(content, contentOperations);
+    if (!shopifyContent) continue;
+    switch (content?.category) {
       case ContentCategory.PRODUCT:
         groupedContent.products.push({
-          contentId: content.id,
-          category: content.category,
-          images: content.output?.images?.map(image => image.src) || [],
+          contentId: content?.contentId,
+          category: content?.category,
           ...content.output
         });
         break;
-
       case ContentCategory.BLOG:
         groupedContent.blogs.push({
-          contentId: content.id,
-          category: content.category,
+          contentId: content?.contentId,
+          category: content?.category,
           ...content.output
         });
         break;
-
       case ContentCategory.ARTICLE:
-        if (content.output?.blog_id) {
-          groupedContent.articles.push({
-            contentId: content.id,
-            category: content.category,
-            ...content.output
-          });
-        }
+        groupedContent.articles.push({
+          contentId: content?.contentId,
+          category: content?.category,
+          ...content.output
+        });
         break;
     }
-  });
+  }
   return groupedContent;
 }
 
@@ -336,7 +407,7 @@ export async function GET(req: Request): Promise<Response> {
     const url = new URL(req.url);
     const shopName = url.searchParams.get('shopName');
     const accessToken = url.searchParams.get('accessToken');
-    const page = parseInt(url.searchParams.get('page') || '1');
+    const pagination = parseInt(url.searchParams.get('pagination') || '1');
     const limit = parseInt(url.searchParams.get('limit') || '10');
     if (!shopName || !accessToken) {
       return new Response('Missing credentials: shopName and accessToken are required', {
@@ -344,13 +415,18 @@ export async function GET(req: Request): Promise<Response> {
         headers: { "Content-Type": "application/json" }
       });
     }
-    let shopify;
-    try {
-      shopify = await initializeShopify(shopName, accessToken);
-    } catch (error) {
-      return handleShopifyInitError(error);
+    const [session, shop] = await Promise.all([
+      ShopifySessionManager.getSessionFromStorageByAccessToken(accessToken),
+      ShopifySessionManager.findShopByName(shopName)
+    ]);
+    if (!session) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid or expired session' }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
     }
-    const shop = await ShopifySessionManager.findShopByName(shopName);
     if (!shop) {
       return new Response(
         JSON.stringify({ error: 'Shop not found' }), {
@@ -359,9 +435,19 @@ export async function GET(req: Request): Promise<Response> {
         }
       );
     }
+    const client = new shopify.clients.Graphql({ session });
+    if (!client) {
+      return new Response(
+        JSON.stringify({ error: 'Failed to initialize Shopify client' }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+    }
+    const contentOperations = new ContentOperations(client);
     try {
       const totalDbContent = await ContentManager.getAllContents(shopName);
-      const groupedContent = await fetchContentWithRetry(shopify, shopName, page, limit);
+      const groupedContent = await getGroupedContent(contentOperations, shopName, pagination, limit);
       return new Response(
         JSON.stringify({
           total: totalDbContent.total,

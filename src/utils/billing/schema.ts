@@ -44,15 +44,34 @@ export const ONE_TIME_CREATE = `
 `;
 
 export const SUBSCRIPTION_CANCEL = `
-  mutation AppSubscriptionCancel($id: ID!) {
-    appSubscriptionCancel(id: $id) {
+  mutation AppSubscriptionCancel($id: ID!, $prorate: Boolean) {
+    appSubscriptionCancel(id: $id, prorate: $prorate) {
       userErrors {
         field
         message
       }
       appSubscription {
         id
+        name
         status
+        createdAt
+        currentPeriodEnd
+        returnUrl
+        test
+        lineItems {
+          id
+          plan {
+            pricingDetails {
+              ... on AppRecurringPricing {
+                interval
+                price {
+                  amount
+                  currencyCode
+                }
+              }
+            }
+          }
+        }
       }
     }
   }

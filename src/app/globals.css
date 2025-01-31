@@ -403,6 +403,35 @@ body,
   resize: none;
 }
 
+.Polaris-IndexTable__Table--unselectable.Polaris-IndexTable__Table--sticky .Polaris-IndexTable__TableCell:first-child {
+  display: flex !important;
+  align-items: start !important;
+}
+
+.Polaris-IndexTable__Table--unselectable.Polaris-IndexTable__Table--sticky .Polaris-IndexTable__TableCell:first-child > div {
+  width: 100% !important;
+}
+
+.Polaris-IndexTable__Table--unselectable.Polaris-IndexTable__Table--sticky .Polaris-IndexTable__TableCell:last-child {
+  display: flex !important;
+  align-items: center !important;
+}
+
+.prompt-table-container {
+  max-height: 60vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.prompt-table-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.prompt-table-container::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
 .p-theme-dark-experimental .Polaris-TextField__Input, 
 .p-theme-dark-experimental .Polaris-TextField__Prefix, 
 .p-theme-dark-experimental .Polaris-Connected, 
@@ -693,6 +722,28 @@ body,
   }
 }
 
+#credit-usage-container button:hover {
+  background-color: var(--p-surface-hovered);
+}
+
+#total-credits-button:hover + #credits-button-tooltip {
+  opacity: 1;
+}
+
+#credits-button-tooltip {
+  opacity: 0;
+  transition: opacity 200ms ease-in-out;
+}
+
+[id^="service-"] {
+  width: 100%;
+}
+
+[id^="service-"]:hover {
+  transform: translateX(4px);
+  transition: transform 200ms ease-in-out;
+}
+
 .product-description {
   color: #202223;
   font-size: 16px;
@@ -841,7 +892,7 @@ body,
   justify-content: start !important;
 }
 
-#notification-bell {
+#notification-bell, #language-button {
   padding: 0px !important;
 }
 
@@ -866,6 +917,42 @@ body,
 .custom-scrollbar {
   scrollbar-width: thin; 
   scrollbar-color: #888 #f1f1f1;
+}
+
+.article-content, .article-summary, .product-description {
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--p-text);
+}
+
+.article-content img, .product-description img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  margin: 16px 0;
+}
+
+.article-content h1, .article-content h2, .article-content h3,
+.product-description h1, .product-description h2, .product-description h3 {
+  margin-top: 24px;
+  margin-bottom: 16px;
+}
+
+.article-content p, .product-description p {
+  margin-bottom: 16px;
+}
+
+.article-content a, .product-description a {
+  color: var(--p-interactive);
+  text-decoration: none;
+}
+
+.article-content a:hover, .product-description a:hover {
+  text-decoration: underline;
+}
+
+.Polaris-ResourceItem__ListItem {
+  list-style: none;
 }
 
 @layer base {

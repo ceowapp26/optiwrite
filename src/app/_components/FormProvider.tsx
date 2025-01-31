@@ -34,7 +34,9 @@ import {
   Radio,
   cn,
 } from "@nextui-org/react";
+import { type Theme } from '@/context/GeneralContextProvider';
 import { ToneType } from '@/constants/share';
+import CommandPrompt from '@/components/chatbot/CommandPrompt';
 import { useAppBridge } from '@/providers/AppBridgeProvider';
 import { Redirect } from '@shopify/app-bridge/actions';
 import { CATEGORY, ContentCategory } from '@/types/content';
@@ -60,7 +62,8 @@ import {
   ImportIcon,
   CategoriesIcon,
   CheckCircleIcon,
-  LayoutSectionIcon
+  LayoutSectionIcon,
+  CursorOptionIcon
 } from '@shopify/polaris-icons';
 import { ImageOff, Waves } from 'lucide-react';
 import { ErrorType } from '@/types/form';
@@ -92,16 +95,15 @@ const MapIcon = {
 
 const CardTemplateItem = memo(({ 
   content, 
+  isSelected,
   onView, 
   onToggleFavorite, 
-  onEdit,
+  onSelect,
   onDelete 
 }) => {
   const [popoverActive, setPopoverActive] = useState(false);
-  const [isFavorite, setIsFavorite] = useState(content.isFavorite || false);
 
   const handleToggleFavorite = () => {
-    setIsFavorite(!isFavorite);
     onToggleFavorite?.(content);
   };
 
@@ -110,6 +112,7 @@ const CardTemplateItem = memo(({
     switch(content.category) {
       case 'blog':
       case 'article':
+      case 'blogArticle':
         imageSrc = content.article_image;
         break;
       case 'product':
@@ -152,10 +155,14 @@ const CardTemplateItem = memo(({
     let title, summary, tags;
     switch(content.category) {
       case 'blog':
+        title = content.blog_title;
+        tags = content.blog_tags;
+        break;
       case 'article':
-        title = content.article_title || content.blog_title;
+      case 'blogArticle':
+        title = content.article_title;
         summary = content.article_summary_html || 'No summary available';
-        tags = content.article_tags || content.blog_tags;
+        tags = content.article_tags;
         break;
       case 'product':
         title = content.title;
@@ -203,15 +210,25 @@ const CardTemplateItem = memo(({
             onClick={() => onView?.(content)}
           />
         </Tooltip>
-        <Tooltip content={isFavorite ? "Remove from Favorites" : "Add to Favorites"}>
+        <Tooltip content={"Import template"}>
+          <Button
+            variant="primary" 
+            icon={CursorOptionIcon} 
+            tone="success"
+            onClick={() => onSelect?.(content)}
+          />
+        </Tooltip>
+        <Tooltip content={content?.isFavorite ? "Remove from Favorites" : "Add to Favorites"}>
           <Button 
             icon={HeartIcon} 
-            variant={isFavorite ? "primary" : "secondary"} 
+            variant={content?.isFavorite ? "primary" : "secondary"} 
+            tone={content?.isFavorite ? "caution" : ""}
             onClick={handleToggleFavorite}
           />
         </Tooltip>
          <Tooltip content={"Remove from Lists"}>
           <Button 
+            variant="primary" 
             icon={DeleteIcon} 
             tone="critical"
             onClick={() => onDelete?.(content)}
@@ -249,7 +266,7 @@ const CardTemplateItem = memo(({
   };
 
   return (
-    <Box className="bg-surface-secondary p-4 rounded-t-sm shadow-md h-[500px] flex flex-col w-full">
+    <Box className={`${isSelected ? 'bg-[var(--p-color-bg-surface-info)]' : 'bg-surface-secondary'} p-4 rounded-t-sm shadow-md h-[500px] flex flex-col w-full max-w-[350px]`}>
       <div className="flex-grow">
         <BlockStack gap="400">
           {renderContentImage()}
@@ -270,20 +287,27 @@ interface Blog {
 }
 
 export interface BaseFormProps {
+  theme?: Theme;
   generating?: boolean;
   isImportImageAvailable?: boolean;
   errors?: ErrorType;
   prompt?: string;
   urls: string[];
-  blogs: Blog[];
+  blogs?: Blog[];
+  totalBlogs?: number;
+  isBlogLoading?: boolean;
+  blogLoadingError?: string | null;
+  onLoadMoreBlogs: () => void;
+  loadingMoreBlogs?: boolean;
   onPromptChange?: (value: string) => void;
+  loadingBlogProgress?: number;
   onUrlChange?: (index: number, value: string) => void;
   onFormSubmit?: () => void;
   onAddUrl?: () => void;
   onResetForm?: () => void;
   templateOptions?: typeof TEMPLATE_OPTIONS;
   selectedTemplate?: string;
-  onSelectTemplate?: (templates: typeof TEMPLATE_OPTIONS, template: string) => void;
+  onSelectTemplate?: (template: TEMPLATE) => void;
   lengthOptions?: string[];
   selectedLength?: string; 
   onSelectLength?: (length: string) => void;
@@ -299,7 +323,7 @@ export interface BaseFormProps {
   onSelectBlog: (blogId: string | null) => void;
   selectedImage?: 'yes' | 'no' | 'unsplash';
   onSelectImage?: (option: string[]) => void;
-  selectedArticle?: 'withArticle' | 'blogOnly';
+  selectedArticle?: boolean;
   onSelectArticle?: (option: string[]) => void;
   toneOptions: any;
   selectedTone: string;
@@ -373,9 +397,9 @@ const ImageInclusionChoiceList = ({ isImportImageAvailable, selectedImage, onSel
       onValueChange={onSelectImage}
       orientation="horizontal"
     >
-      {options.map((option) => (
+      {options.map((option, index) => (
         <CustomRadio
-          key={option.value}
+          key={`${option.value}-${index}`}
           value={option.value}
           description={option.description}
           icon={option.icon}
@@ -494,7 +518,8 @@ const ContentTypeSelector = ({ selectedCategory, onSelectCategory }) => {
           isVertical
         >
           <BlockStack gap="300">
-            <CustomRadio 
+            <CustomRadio
+              key="BLOG" 
               description="SEO-optimized blog posts to engage your audience" 
               value="BLOG"
               icon={BlogIcon}
@@ -502,6 +527,7 @@ const ContentTypeSelector = ({ selectedCategory, onSelectCategory }) => {
               Blog Post
             </CustomRadio>
             <CustomRadio 
+              key="ARTICLE" 
               description="In-depth articles to establish thought leadership" 
               value="ARTICLE"
               icon={TextWithImageIcon}
@@ -509,6 +535,7 @@ const ContentTypeSelector = ({ selectedCategory, onSelectCategory }) => {
               Article
             </CustomRadio>
             <CustomRadio
+              key="PRODUCT" 
               description="Conversion-focused product descriptions"
               value="PRODUCT"
               icon={StoreIcon}
@@ -519,6 +546,95 @@ const ContentTypeSelector = ({ selectedCategory, onSelectCategory }) => {
         </RadioGroup>
       </BlockStack>
     </Box>
+  );
+};
+
+const BlogList = ({
+  blogs = [],
+  selectedBlog,
+  onSelectBlog,
+  totalBlogs = 0,
+  isBlogLoading = false,
+  loadingMoreBlogs = false,
+  onLoadMoreBlogs,
+  loadingBlogProgress = 0,
+  blogLoadingError = null
+}) => {
+  return (
+    <BlockStack gap="300">
+      <Text variant="headingSm" as="h3">Your Blogs</Text>
+      {isBlogLoading && blogs.length === 0 && (
+        <BlockStack gap="300" align="center" inlineAlign="center">
+          <Box padding="400">
+            <Spinner accessibilityLabel="Loading blogs" size="large" />
+          </Box>
+          <ProgressBar progress={loadingBlogProgress} size="small" />
+          <Text variant="bodySm" color="subdued">Loading blogs...</Text>
+        </BlockStack>
+      )}
+      {blogLoadingError && (
+        <Banner status="critical" onDismiss={() => {}}>
+          <p>{blogLoadingError}</p>
+        </Banner>
+      )}
+      {blogs.length > 0 && (
+        <Grid>
+          {blogs
+            .filter(blog => blog.blogName !== "new blog")
+            .map((blog, index) => (
+              <Grid.Cell 
+                key={`${blog.blogId}-${index}`}
+                columnSpan={{xs: 6, sm: 3, md: 3, lg: 6, xl: 6}}
+              >
+                <Button
+                  variant={selectedBlog === blog.blogId ? "primary" : "tertiary"}
+                  onClick={() => onSelectBlog(blog.blogId)}
+                  fullWidth
+                >
+                  <Box padding="200" display="flex" alignItems="center" gap="300">
+                    <Icon source={BlogIcon} />
+                    <BlockStack gap="100">
+                      <Text variant="bodyMd" fontWeight="medium">
+                        {blog.blogName}
+                      </Text>
+                      <Text variant="bodySm" color="subdued">
+                        {blog.articleCount || 0} articles
+                      </Text>
+                    </BlockStack>
+                  </Box>
+                </Button>
+              </Grid.Cell>
+            ))}
+        </Grid>
+      )}
+      {blogs.length > 0 && blogs.length < totalBlogs && (
+        <Box padding="400">
+          <BlockStack gap="300" align="center">
+            {loadingMoreBlogs && (
+              <ProgressBar progress={loadingBlogProgress} size="small" />
+            )}
+            <Button
+              onClick={onLoadMoreBlogs}
+              loading={loadingMoreBlogs}
+              disabled={isBlogLoading || loadingMoreBlogs}
+              size="large"
+              variant="secondary"
+            >
+              {loadingMoreBlogs ? 'Loading more blogs...' : 'Load More'}
+            </Button>
+          </BlockStack>
+        </Box>
+      )}
+      {!isBlogLoading && blogs.length === 0 && !blogLoadingError && (
+        <Box padding="400">
+          <BlockStack gap="300" align="center">
+            <Text variant="bodyMd" color="subdued">
+              No blogs found
+            </Text>
+          </BlockStack>
+        </Box>
+      )}
+    </BlockStack>
   );
 };
 
@@ -699,8 +815,15 @@ const ContentStatusBanner: React.FC<BannerProps> = ({
 
 const LightVersionForm = memo(({
   prompt,
+  theme,
   urls,
   blogs,
+  onLoadMoreBlogs,
+  loadingMoreBlogs,
+  isBlogLoading,
+  blogLoadingError,
+  loadingBlogProgress,
+  totalBlogs,
   errors,
   onPromptChange,
   onUrlChange,
@@ -738,15 +861,16 @@ const LightVersionForm = memo(({
   localContentData,
   error,
   setError,
-}: BaseFormProps) => (
-  <Box padding="500">
-    <Card>
-      <Box padding="500">
+}: BaseFormProps) => {
+  const backgroundColor = theme === 'light' ? 'bg-[var(--p-color-bg-surface)] border-gray-100/30' : 'bg-[var(--p-color-bg-inverse)] border-gray-100/30';
+  return (
+    <Box className="bg-transparent shadow-lg rounded-md w-full py-6 mt-4">
+      <Box className={`${backgroundColor} p-5 rounded-lg shadow-md border`}>
         <BlockStack gap="500">
           <TextContainer>
             <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 rounded-lg bg-primary/10">
-                <MagicIcon className="w-6 h-6 text-primary" />
+              <div className="p-2 rounded-lg bg-green-200">
+                <MagicIcon className="w-7 h-7 fill-violet-800" />
               </div>
               <Text variant="headingXl" as="h1">AI Content Generator</Text>
             </div>
@@ -769,7 +893,7 @@ const LightVersionForm = memo(({
               onSelectArticle={onSelectArticle}
             />
           )}
-          <Box>
+          <Box className="relative">
             <BlockStack gap="400">
               <Text variant="headingMd" as="h3">What would you like to create?</Text>
               <TextField 
@@ -784,6 +908,9 @@ const LightVersionForm = memo(({
                 error={errors.prompt}
               />
             </BlockStack>
+            <CommandPrompt 
+              setContent={onPromptChange} 
+            />
           </Box>
          {selectedCategory === ContentCategory.ARTICLE && (
             <Box padding="500" maxWidth="800px" margin="0 auto">
@@ -823,57 +950,18 @@ const LightVersionForm = memo(({
                   borderColor="border"
                   shadow="low"
                 >
-                  <BlockStack gap="300">
-                    {blogs.length < 1 ? (
-                      <EmptyState
-                        heading="Start Your First Blog"
-                        image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
-                        imageWidth={200}
-                      >
-                        <Text variant="bodyMd" color="subdued" alignment="center">
-                          Create your first blog and start publishing engaging content for your audience
-                        </Text>
-                        <Box paddingTop="400">
-                          <Button 
-                            primary 
-                            icon={PlusIcon}
-                            onClick={() => onSelectBlog(null)}
-                          >
-                            Create New Blog
-                          </Button>
-                        </Box>
-                      </EmptyState>
-                    ) : (
-                      <BlockStack gap="300">
-                        <Text variant="headingSm" as="h3">Your Blogs</Text>
-                        <Grid columns={4} gap="300">
-                          {blogs
-                            .filter(blog => blog.blogName !== "new blog")
-                            .map((blog) => (
-                              <Grid.Cell columnSpan={{xs: 6, sm: 3, md: 3, lg: 6, xl: 6}}>
-                               <Button
-                                  key={blog.blogId}
-                                  variant={selectedBlog === blog.blogId ? "primary" : "tertiary"}
-                                  onClick={() => onSelectBlog(blog.blogId)}
-                                  fullWidth
-                                >
-                                  <Box padding="200" display="flex" alignItems="center" gap="300">
-                                    <Icon source={BlogIcon} />
-                                    <BlockStack gap="100">
-                                      <Text variant="bodyMd" fontWeight="medium">
-                                        {blog.blogName}
-                                      </Text>
-                                      <Text variant="bodySm" color="subdued">
-                                        {blog.articleCount || 0} articles
-                                      </Text>
-                                    </BlockStack>
-                                  </Box>
-                                </Button>
-                              </Grid.Cell>
-                            ))}
-                        </Grid>
-                      </BlockStack>
-                    )}
+                  <BlockStack gap="300">                  
+                    <BlogList
+                      blogs={blogs}
+                      selectedBlog={selectedBlog}
+                      onSelectBlog={onSelectBlog}
+                      totalBlogs={totalBlogs}
+                      isBlogLoading={isBlogLoading}
+                      loadingMoreBlogs={loadingMoreBlogs}
+                      onLoadMoreBlogs={onLoadMoreBlogs}
+                      loadingBlogProgress={loadingBlogProgress}
+                      blogLoadingError={blogLoadingError}
+                    />
                   </BlockStack>
                 </Box>
                 <Card>
@@ -935,7 +1023,7 @@ const LightVersionForm = memo(({
               </Button>
             </BlockStack>
           </Box>
-          {selectedCategory === ContentCategory.BLOG && selectedArticle === "withArticle" && (
+          {(selectedCategory === ContentCategory.BLOG && !selectedArticle) ? null : (
             <>
               <Box>     
                 <BlockStack gap="300">
@@ -1025,9 +1113,9 @@ const LightVersionForm = memo(({
                     </Text>
                   </BlockStack>
                   <ButtonGroup fullWidth>
-                    {lengthOptions.map((option) => (
+                    {lengthOptions.map((option, index) => (
                       <Button
-                        key={option.key}
+                        key={`${option.key}-${index}`}
                         pressed={selectedLength === option.value}
                         onClick={() => onSelectLength(option.value)}
                       >
@@ -1065,9 +1153,9 @@ const LightVersionForm = memo(({
           </Button>
         </BlockStack>
       </Box>
-    </Card>
-  </Box>
-));
+    </Box>
+  )}
+);
 
 interface EnhancedTemplateOption extends TemplateOption {
   isFavorite?: boolean;
@@ -1075,8 +1163,15 @@ interface EnhancedTemplateOption extends TemplateOption {
 
 const FullVersionForm = memo(({
   prompt,
+  theme,
   urls,
-  blogs, 
+  blogs,
+  onLoadMoreBlogs,
+  loadingMoreBlogs,
+  blogLoadingError,
+  loadingBlogProgress,
+  totalBlogs,
+  isBlogLoading,
   errors,
   onPromptChange,
   onUrlChange,
@@ -1105,6 +1200,8 @@ const FullVersionForm = memo(({
   toneOptions,
   selectedTone,
   onSelectTone,
+  selectedArticle,
+  onSelectArticle,
   generating,
   processing,
   showProcessingStatus,
@@ -1130,6 +1227,7 @@ const FullVersionForm = memo(({
   const host = searchParams?.get("host") || "";
   const storedTemplates = useAppSelector(selectTemplates);
   const templates = useAppSelector(selectTemplatesList);
+  const backgroundColor = theme === 'light' ? 'bg-[var(--p-color-bg-surface)] border-gray-100/30' : 'bg-[var(--p-color-bg-inverse)] border-gray-100/30';
 
   useEffect(() => {
     if (!templates.length) {
@@ -1171,7 +1269,7 @@ const FullVersionForm = memo(({
         }));
       }
     }
-  }, [dispatch]);
+  }, [dispatch, templates]);
 
   useEffect(() => {
     const templatesByCategory = TEMPLATE_OPTIONS.reduce((acc, option) => {
@@ -1185,12 +1283,12 @@ const FullVersionForm = memo(({
         isFavorite: false
       });
       return acc;
-    }, {} as Record<'blog' | 'article' | 'product', Template[]>);
+    }, {} as Record<'blog' | 'article' | 'blogArticle' | 'product', Template[]>);
 
     if (!storedTemplates || Object.values(storedTemplates).every(arr => arr.length === 0)) {
       Object.entries(templatesByCategory).forEach(([type, items]) => {
         dispatch(createTemplates({
-          type: type as 'blog' | 'article' | 'product',
+          type: type as 'blog' | 'article' | 'blogArticle' | 'product',
           items
         }));
       });
@@ -1221,27 +1319,26 @@ const FullVersionForm = memo(({
         );
         if (needsUpdate) {
           dispatch(updateTemplates({
-            type: type as 'blog' | 'article' | 'product',
+            type: type as 'blog' | 'article' | 'blogArticle' | 'product',
             items: updatedTemplates
           }));
         }
       });
     }
-  }, [dispatch, TEMPLATE_OPTIONS]);
+  }, [dispatch, TEMPLATE_OPTIONS, templates]);
 
   const handleLoadDefaultItems = useCallback(() => {
-    const defaultTemplates = templateOptions.slice(0, 8).map(option => ({
+    const defaultTemplates = TEMPLATE_OPTIONS.slice(0, 8).map(option => ({
       ...option,
       isFavorite: false
     }));
-    
-    dispatch(createList({
+    dispatch(updateList({
       id: 'templateList',
       name: 'Template List',
       description: 'Default template list',
       items: defaultTemplates
     }));
-  }, [dispatch, templateOptions]);
+  }, [dispatch, TEMPLATE_OPTIONS]);  
 
   const handleToggleFavorite = useCallback((option: EnhancedTemplateOption) => {
     const updatedTemplates = templates.map(template =>
@@ -1285,10 +1382,16 @@ const FullVersionForm = memo(({
     [templates]
   );
 
-  const visibleTemplateOptions = useMemo(() => 
-    sortedTemplates?.slice(0, visibleTemplates),
-    [sortedTemplates, visibleTemplates]
-  );
+  const visibleTemplateOptions = useMemo(() => {
+    const category =
+      (selectedCategory.toLowerCase() === 'blog' && selectedArticle) ||
+      (selectedCategory.toLowerCase() === 'article' && selectedBlog)
+        ? 'blogArticle'
+        : selectedCategory.toLowerCase();
+    return sortedTemplates
+      ?.slice(0, visibleTemplates)
+      .filter(template => template.category === category);
+  }, [sortedTemplates, visibleTemplates, selectedCategory, selectedArticle, selectedBlog]);
 
   const hasMoreTemplates = useMemo(() => 
     sortedTemplates?.length > visibleTemplates,
@@ -1329,11 +1432,6 @@ const FullVersionForm = memo(({
     return <IconComponent className="w-6 h-6" />;
   });
 
-  const handleSelect = useCallback((template) => {
-    onSelectTemplate(template);
-    setIsModalOpen(false);
-  }, []);
-
   const handleCloseModal = useCallback(() => {
     setIsModalOpen(false);
     setTemplate(null);
@@ -1346,8 +1444,8 @@ const FullVersionForm = memo(({
 
   return(
     <Frame>
-      <Box padding="500">
-        <Card>
+      <Box className="bg-transparent shadow-lg rounded-md w-full py-6 mt-4">
+        <Box className={`${backgroundColor} p-5 rounded-lg shadow-md border`}>
           <Box padding="500">
             <BlockStack gap="500">
               <TextContainer>
@@ -1370,7 +1468,13 @@ const FullVersionForm = memo(({
                 selectedCategory={selectedCategory}
                 onSelectCategory={onSelectCategory}
               />
-              <Box>
+              {selectedCategory === ContentCategory.BLOG && (
+                <ArticleInclusionSelector 
+                  selectedArticle={selectedArticle} 
+                  onSelectArticle={onSelectArticle}
+                />
+              )}
+              <Box className="relative">
                 <BlockStack gap="400">
                   <Text variant="headingMd" as="h3">What would you like to create?</Text>
                   <TextField 
@@ -1385,9 +1489,12 @@ const FullVersionForm = memo(({
                     error={errors.prompt}
                   />
                 </BlockStack>
+                <CommandPrompt 
+                  setContent={onPromptChange} 
+                />
               </Box>
               <div className="px-6">
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center pb-5">
                   <Text variant="headingMd" as="h3">Choose your template option</Text>
                   <InlineStack align="space-between">
                     <Button onClick={handleLoadDefaultItems}>
@@ -1403,6 +1510,7 @@ const FullVersionForm = memo(({
                   </InlineStack>
                 </div>
                 <Divider borderColor="border" />
+                <Box paddingBlockStart="300" />
                 <Scrollable horizontal shadow>
                   <div style={{ display: 'flex', gap: '16px', paddingBottom: '16px' }}>
                     {visibleTemplateOptions?.map((option, index) => (
@@ -1411,7 +1519,8 @@ const FullVersionForm = memo(({
                           content={option}
                           onView={handleView}
                           onToggleFavorite={handleToggleFavorite}
-                          onEdit={(content) => {}}
+                          isSelected={selectedTemplate?.id === option?.id}
+                          onSelect={onSelectTemplate}
                           onDelete={handleRemoveItem}
                         />
                       </div>
@@ -1431,7 +1540,7 @@ const FullVersionForm = memo(({
                   </div>
                 </Scrollable>
               </div>
-             {selectedCategory === ContentCategory.ARTICLE && (
+              {selectedCategory === ContentCategory.ARTICLE && (
                 <Box padding="500" maxWidth="800px" margin="0 auto">
                   <BlockStack gap="500">
                     <Box 
@@ -1470,56 +1579,17 @@ const FullVersionForm = memo(({
                       shadow="low"
                     >
                       <BlockStack gap="300">
-                        {blogs.length < 1 ? (
-                          <EmptyState
-                            heading="Start Your First Blog"
-                            image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
-                            imageWidth={200}
-                          >
-                            <Text variant="bodyMd" color="subdued" alignment="center">
-                              Create your first blog and start publishing engaging content for your audience
-                            </Text>
-                            <Box paddingTop="400">
-                              <Button 
-                                primary 
-                                icon={PlusIcon}
-                                onClick={() => onSelectBlog(null)}
-                              >
-                                Create New Blog
-                              </Button>
-                            </Box>
-                          </EmptyState>
-                        ) : (
-                          <BlockStack gap="300">
-                            <Text variant="headingSm" as="h3">Your Blogs</Text>
-                            <Grid columns={4} gap="300">
-                              {blogs
-                                .filter(blog => blog.blogName !== "new blog")
-                                .map((blog) => (
-                                  <Grid.Cell columnSpan={{xs: 6, sm: 3, md: 3, lg: 6, xl: 6}}>
-                                   <Button
-                                      key={blog.blogId}
-                                      variant={selectedBlog === blog.blogId ? "primary" : "tertiary"}
-                                      onClick={() => onSelectBlog(blog.blogId)}
-                                      fullWidth
-                                    >
-                                      <Box padding="200" display="flex" alignItems="center" gap="300">
-                                        <Icon source={BlogIcon} />
-                                        <BlockStack gap="100">
-                                          <Text variant="bodyMd" fontWeight="medium">
-                                            {blog.blogName}
-                                          </Text>
-                                          <Text variant="bodySm" color="subdued">
-                                            {blog.articleCount || 0} articles
-                                          </Text>
-                                        </BlockStack>
-                                      </Box>
-                                    </Button>
-                                  </Grid.Cell>
-                                ))}
-                            </Grid>
-                          </BlockStack>
-                        )}
+                        <BlogList
+                          blogs={blogs}
+                          selectedBlog={selectedBlog}
+                          onSelectBlog={onSelectBlog}
+                          totalBlogs={totalBlogs}
+                          isBlogLoading={isBlogLoading}
+                          loadingMoreBlogs={loadingMoreBlogs}
+                          onLoadMoreBlogs={onLoadMoreBlogs}
+                          loadingBlogProgress={loadingBlogProgress}
+                          blogLoadingError={blogLoadingError}
+                        />
                       </BlockStack>
                     </Box>
                     <Card>
@@ -1581,106 +1651,110 @@ const FullVersionForm = memo(({
                   </Button>
                 </BlockStack>
               </Box>
-              <Box>     
-                <BlockStack gap="300">
-                  <BlockStack>
-                    <InlineStack gap="300" align="start">
-                      <ImageIcon className="w-5 h-5 text-primary" />
-                      <Text variant="headingMd" as="h3" className="flex items-center gap-2">
-                        Image Inclusions
-                      </Text>
-                    </InlineStack>
-                    <Text variant="bodyMd" color="subdued">
-                      Select image inclusion options
-                    </Text>
-                  </BlockStack>
-                  <ImageInclusionChoiceList 
-                    isImportImageAvailable={isImportImageAvailable}
-                    selectedImage={selectedImage}
-                    onSelectImage={onSelectImage}
-                  />
-                </BlockStack>
-              </Box>
-              <Box>
-                <BlockStack gap="400">
-                  <BlockStack>
-                    <InlineStack gap="300" align="start">
-                      <LayoutSectionIcon className="w-5 h-5 text-primary" />
-                      <Text variant="headingMd" as="h3" className="flex items-center gap-2">
-                        Section Inclusions
-                      </Text>
-                    </InlineStack>
-                    <Text variant="bodyMd" color="subdued">
-                      Choose how many sections to include
-                    </Text>
-                  </BlockStack>
-                  <Checkbox
-                    label="Include Subtitles"
-                    checked={subtitleChecked}
-                    onChange={onSubtitleCheckedChange}
-                  />
-                  {subtitleChecked && (
+              {(selectedCategory === ContentCategory.BLOG && !selectedArticle) ? null : (
+                <>
+                  <Box>     
                     <BlockStack gap="300">
-                      <InlineStack align="space-between">
-                        <Text variant="headingMd" as="h3">Add up to 4 sections for your content</Text>
-                        <ButtonGroup segmented>
-                          {[1, 2, 3, 4].map((num) => (
-                            <Button
-                              key={num}
-                              pressed={subtitleQuantity === num}
-                              onClick={() => onSubtitleQuantityChange(num)}
-                              size="slim"
-                            >
-                              {num}
-                            </Button>
-                          ))}
-                        </ButtonGroup>
-                      </InlineStack>
-                      {subtitleQuantity > 0 && (
+                      <BlockStack>
+                        <InlineStack gap="300" align="start">
+                          <ImageIcon className="w-5 h-5 text-primary" />
+                          <Text variant="headingMd" as="h3" className="flex items-center gap-2">
+                            Image Inclusions
+                          </Text>
+                        </InlineStack>
+                        <Text variant="bodyMd" color="subdued">
+                          Select image inclusion options
+                        </Text>
+                      </BlockStack>
+                      <ImageInclusionChoiceList 
+                        isImportImageAvailable={isImportImageAvailable}
+                        selectedImage={selectedImage}
+                        onSelectImage={onSelectImage}
+                      />
+                    </BlockStack>
+                  </Box>
+                  <Box>
+                    <BlockStack gap="400">
+                      <BlockStack>
+                        <InlineStack gap="300" align="start">
+                          <LayoutSectionIcon className="w-5 h-5 text-primary" />
+                          <Text variant="headingMd" as="h3" className="flex items-center gap-2">
+                            Section Inclusions
+                          </Text>
+                        </InlineStack>
+                        <Text variant="bodyMd" color="subdued">
+                          Choose how many sections to include
+                        </Text>
+                      </BlockStack>
+                      <Checkbox
+                        label="Include Subtitles"
+                        checked={subtitleChecked}
+                        onChange={onSubtitleCheckedChange}
+                      />
+                      {subtitleChecked && (
                         <BlockStack gap="300">
-                          {Array.from({ length: subtitleQuantity }).map((_, index) => (
-                            <TextField 
-                              key={index}
-                              maxLength={250}
-                              placeholder={`Subtitle for section ${index + 1}`}
-                              helpText={`Provide title for section ${index + 1} (optional)`}
-                              onChange={(value) => onSubtitlePromptChange(index, value)}
-                              value={subtitlePrompts[index] || ''}
-                              error={errors.subtitlePrompts?.[index]}
-                            />
-                          ))}
+                          <InlineStack align="space-between">
+                            <Text variant="headingMd" as="h3">Add up to 4 sections for your content</Text>
+                            <ButtonGroup segmented>
+                              {[1, 2, 3, 4].map((num) => (
+                                <Button
+                                  key={num}
+                                  pressed={subtitleQuantity === num}
+                                  onClick={() => onSubtitleQuantityChange(num)}
+                                  size="slim"
+                                >
+                                  {num}
+                                </Button>
+                              ))}
+                            </ButtonGroup>
+                          </InlineStack>
+                          {subtitleQuantity > 0 && (
+                            <BlockStack gap="300">
+                              {Array.from({ length: subtitleQuantity }).map((_, index) => (
+                                <TextField 
+                                  key={index}
+                                  maxLength={250}
+                                  placeholder={`Subtitle for section ${index + 1}`}
+                                  helpText={`Provide title for section ${index + 1} (optional)`}
+                                  onChange={(value) => onSubtitlePromptChange(index, value)}
+                                  value={subtitlePrompts[index] || ''}
+                                  error={errors.subtitlePrompts?.[index]}
+                                />
+                              ))}
+                            </BlockStack>
+                          )}
                         </BlockStack>
                       )}
                     </BlockStack>
-                  )}
-                </BlockStack>
-              </Box>
-              <Box>
-                <BlockStack gap="300">
-                  <BlockStack>
-                    <InlineStack gap="300" align="start">
-                      <Waves className="w-5 h-5 text-primary" />
-                      <Text variant="headingMd" as="h3" className="flex items-center gap-2">
-                        Content Length
-                      </Text>
-                    </InlineStack>
-                    <Text variant="bodyMd" color="subdued">
-                      Select Length of Content
-                    </Text>
-                  </BlockStack>
-                  <ButtonGroup fullWidth>
-                    {lengthOptions.map((option) => (
-                      <Button
-                        key={option.key}
-                        pressed={selectedLength === option.value}
-                        onClick={() => onSelectLength(option.value)}
-                      >
-                        {option.label}
-                      </Button>
-                    ))}
-                  </ButtonGroup>
-                </BlockStack>
-              </Box>
+                  </Box>
+                  <Box>
+                    <BlockStack gap="300">
+                      <BlockStack>
+                        <InlineStack gap="300" align="start">
+                          <Waves className="w-5 h-5 text-primary" />
+                          <Text variant="headingMd" as="h3" className="flex items-center gap-2">
+                            Content Length
+                          </Text>
+                        </InlineStack>
+                        <Text variant="bodyMd" color="subdued">
+                          Select Length of Content
+                        </Text>
+                      </BlockStack>
+                      <ButtonGroup fullWidth>
+                        {lengthOptions.map((option, index) => (
+                          <Button
+                            key={`${option.key}-${index}`}
+                            pressed={selectedLength === option.value}
+                            onClick={() => onSelectLength(option.value)}
+                          >
+                            {option.label}
+                          </Button>
+                        ))}
+                      </ButtonGroup>
+                    </BlockStack>
+                  </Box>
+                </>
+              )}
               <Box paddingBlockEnd="400" />
               <ContentStatusBanner
                 showProcessingStatus={showProcessingStatus}
@@ -1707,17 +1781,17 @@ const FullVersionForm = memo(({
               </Button>
             </BlockStack>
           </Box>
-        </Card>
+        </Box>
       </Box>
       {toastMarkup}
       {isModalOpen && (
         <TemplateDetailsModal
-          content={{}}
+          content={template}
           contentType={template.category}
           open={isModalOpen}
           onClose={handleCloseModal}
           onView={handleView}
-          onSelect={handleSelect}
+          onSelect={onSelectTemplate}
         />
       )}
     </Frame>
@@ -1785,7 +1859,6 @@ export const FormProvider: React.FC<FormProviderProps> = memo(({ formId, ...prop
         return null;
     }
   }, [formId, props]);
-
   return renderForm();
 });
 

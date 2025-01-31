@@ -11,6 +11,7 @@ export async function GET(req: NextRequest) {
     const searchParams = req.nextUrl.searchParams;
     const shop = searchParams.get('shop');
     const planName = searchParams.get('planName');
+    const email = searchParams.get('email');
     const canceled = searchParams.get('canceled') === 'true';
     if (!shop || !planName) {
       return Response.json({ 
@@ -36,7 +37,8 @@ export async function GET(req: NextRequest) {
     const event = await SubscriptionManager.checkSubscriptionStatus(
       planName,
       shop,
-      canceled
+      canceled,
+      email
     );
     return Response.json({ 
       status: event,

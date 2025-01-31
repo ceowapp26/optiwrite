@@ -35,7 +35,7 @@ import {
 import { Grid } from "@mui/material";
 import { useFormContext } from 'react-hook-form';
 import { type ContentUpdate } from '@/context/GeneralContextProvider';
-import { PRODUCT_FORM } from '@/constants/content';
+import { PRODUCT_FORM, UPDATE_PRODUCT_FORM } from '@/constants/content';
 import { CONTENT, CATEGORY, ContentCategory } from '@/types/content';
 import { useShopifySubmit } from '@/hooks/useShopifySubmit';
 import { ShopApiService } from '@/utils/api';
@@ -138,8 +138,9 @@ interface BaseProps {
 interface ContentFormProps extends BaseProps {
   contentId: string;
   content: CONTENT;
+  isUpdate?: boolean;
   onContentChange: (newContent: CONTENT) => void;
-  onContentUpdate: (newContent: CONTENT) => void;
+  onBodyContentUpdate: (newContent: CONTENT) => void;
   isRealtimeEditing?: boolean;
   setIsRealtimeEditing?: React.Dispatch<React.SetStateAction<boolean>>;
   handleShopifyAI?: (shopName: string, userId: string, action: string, content: CONTENT) => Promise<any>;
@@ -152,10 +153,11 @@ const ProductForm: React.FC<ContentFormProps> = ({
   contentId,
   content,
   onContentChange,
-  onContentUpdate,
+  onBodyContentUpdate,
   isRealtimeEditing,
   setIsRealtimeEditing, 
   handleShopifyAI,
+  isUpdate = false
 }) => {
   const {
     register,
@@ -183,15 +185,6 @@ const ProductForm: React.FC<ContentFormProps> = ({
     return images.filter(Boolean);
   }, [content?.output?.images, content?.output?.image?.src]);
 
-  const {
-    register,
-    formState: { errors },
-    control,
-    trigger,
-    setValue,
-    watch
-  } = useFormContext();
-
   const handleCurrentImageChange = (index: number, url: string) => {
     setCurrentImageIndex(index);
     setCurrentImageUrl(url);
@@ -210,60 +203,6 @@ const ProductForm: React.FC<ContentFormProps> = ({
       return false;
     }
   };
-
-  /*const updateImageInStorage = async (fileUrl: string, newFile: File) => {
-    const isSupabaseImage = isSupabaseImageUrl(fileUrl);
-    if (!isSupabaseImage) return;  
-    try {
-      let filePath: string;
-      if (fileUrl.includes('/optiwrite-images/')) {
-        filePath = fileUrl.split('/optiwrite-images/')[1].toLowerCase();
-      } else if (fileUrl.includes('/object/public/')) {
-        filePath = fileUrl.split('/object/public/optiwrite-images/')[1].toLowerCase();
-      } else {
-        throw new Error("Invalid file path format");
-      }
-      filePath = filePath.replace(/^\/+|\/+$/g, '');
-      /*const { data: existingFile, error: listError } = await supabase.storage
-        .from("optiwrite-images")
-        .list('uploads', {
-          search: filePath
-        });
-
-      if (listError) {
-        throw listError;
-      }
-      if (!existingFile || existingFile.length === 0) {
-        throw new Error("Image not found in storage");
-      }
-      const { data, error } = await supabase.storage
-      .from(`optiwrite-images`)
-      .update(filePath, newFile, {
-        cacheControl: "3600",
-        upsert: true,
-      });
-
-      if (error) {
-        console.error("Supabase storage error details:", error);
-        throw error;
-      }
-      const { data: { publicUrl } } = supabase.storage
-        .from(`optiwrite-images`)
-        .getPublicUrl(filePath);
-      toast.success("Image updated successfully.");
-      return publicUrl;
-    } catch (error) {
-        console.error("Error updating image:", error);
-      if (error instanceof Error) {
-        if (error.message === "Invalid file path format") {
-          toast.error("Invalid file path format");
-        } else {
-         toast.error("Error updating the image. Please try again.");
-        }
-      }
-      throw error;
-    }
-  };*/
 
   const removeImageFromStorage = useCallback(
     async (fileUrl: string) => {
@@ -424,15 +363,17 @@ const ProductForm: React.FC<ContentFormProps> = ({
   };
   
   const renderFormFields = useMemo(() => {
-     const filteredFields = PRODUCT_FORM.filter((field) => 
-        Object.keys(content?.output || {}).includes(field.name)
-      );
+    const selectedForm = isUpdate ? UPDATE_PRODUCT_FORM : PRODUCT_FORM;
+    const outputKeys = Object.keys(content?.output || {});
+    const filteredFields = selectedForm.filter((field) => 
+      outputKeys.includes(field.name)
+    );
       return (
       <Box className="w-full py-10 px-6">
         {filteredFields.map((field) => (
           <FormGenerator
             key={field.name}
-            defaultValue={content?.output[field.name]?.toString()}
+            defaultValue={content?.output[field.name]}
             {...field}
             register={register}
             errors={errors}
@@ -526,7 +467,7 @@ const ProductForm: React.FC<ContentFormProps> = ({
             contentTitle={content?.output?.title}
             handleShopifyAI={handleShopifyAI}
           />
-          {renderFormFields()}
+          {renderFormFields}
         </React.Fragment>
       </Card>
     </Box>

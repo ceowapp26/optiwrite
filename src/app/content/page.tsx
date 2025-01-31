@@ -1,12 +1,12 @@
 "use client"
 import SessionProvider from '@/providers/SessionProvider';
-import ContentHistory from '@/components/ContentHistory';
+import HomePage from '../_components/HomePage';
 
 export default function ContentPage() {
   return (
     <SessionProvider>
       {({ appSession }) => (
-       <ContentHistory session={appSession} />
+       <HomePage session={appSession} />
       )}
     </SessionProvider>
   );

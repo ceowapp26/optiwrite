@@ -18,10 +18,17 @@ import { FormType, BaseFormProps, FormProvider } from './FormProvider';
 
 const LightVersionForm: React.FC<LightVersionFormProps> = (
   { 
+    theme,
     prompt, 
     onPromptChange, 
     urls, 
     blogs,
+    onLoadMoreBlogs,
+    loadingMoreBlogs,
+    isBlogLoading,
+    blogLoadingError,
+    loadingBlogProgress,
+    totalBlogs,
     errors,
     onUrlChange, 
     onAddUrl, 
@@ -60,15 +67,21 @@ const LightVersionForm: React.FC<LightVersionFormProps> = (
     setError    
   }
 ) => {
-
   return (
     <FormProvider 
       formId={FormType.LIGHT} 
       {...{
+        theme,
         prompt, 
         onPromptChange, 
         urls,
         blogs,
+        onLoadMoreBlogs,
+        isBlogLoading,
+        blogLoadingError,
+        loadingMoreBlogs,
+        loadingBlogProgress,
+        totalBlogs,
         errors, 
         onUrlChange, 
         onAddUrl, 

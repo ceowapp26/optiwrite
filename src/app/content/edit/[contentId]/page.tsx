@@ -28,6 +28,7 @@ import BlogForm from "@/components/forms/content/BlogForm";
 import ArticleForm from '@/components/forms/content/ArticleForm';
 import NotificationBell from '@/components/NotificationBell';
 import ButtonHandler from '@/components/forms/content/ButtonHandler';
+import { useFormContext } from 'react-hook-form';
 import ContentRenderedView from "@/components/content/ContentRenderedView";
 import { Switch } from '@nextui-org/react';
 
@@ -176,6 +177,67 @@ const FormSubmissionErrorModal: React.FC<FormSubmissionErrorModalProps> = ({
   );
 };
 
+const RenderButtons = memo(({
+  category,
+  selectedTab,
+  isFormSubmitting,
+  onCancelAction,
+  handleSubmitWithErrorHandling,
+  content,
+  handleManualCancel,
+}) => {
+  if (!content) return null;
+  const {
+    formState: { isSubmitting },
+  } = useFormContext();
+  const isLoading = useMemo(() => isSubmitting || isFormSubmitting, [isSubmitting, isFormSubmitting]);
+  return (
+    <Box width="100%" paddingBlock="500">
+      {selectedTab === 0 ? (
+        <ButtonGroup gap="loose" fullWidth>
+          <ButtonHandler
+            id={`PUBLISH_${category}`}
+            text={`PUBLISH ${category}`} 
+            onClickOrType="submit" 
+            submitType={`PUBLISH_${category}`}
+            tooltipContent="Publish this product to your Shopify shop."
+            loading={isLoading}
+          />
+          <ButtonHandler
+            id="CANCEL"
+            tooltipContent="Cancel the publishing process."
+            onClickOrType={onCancelAction}
+            text="CANCEL"
+            loading={isLoading}
+          />
+        </ButtonGroup>
+      ) : (
+        <ButtonGroup gap="loose" fullWidth>
+          <Button
+            id={`PUBLISH_${category}`}
+            tooltipContent="Publish this product to your Shopify shop."
+            variant="primary"
+            onClick={() => handleSubmitWithErrorHandling(`PUBLISH_${category}`, content)}
+            loading={isLoading}
+            disabled={isLoading}
+          >
+            {`PUBLISH ${category}`} 
+          </Button>
+          <Button
+            id="CANCEL"
+            tooltipContent="Cancel the publishing process."
+            variant="secondary"
+            onClick={handleManualCancel}
+            disabled={!isLoading}
+          >
+            CANCEL
+          </Button>
+        </ButtonGroup>
+      )}
+    </Box>
+  );
+});
+
 interface BaseProps {
   appSession: AppSession;
 }
@@ -211,6 +273,7 @@ const ContentEditPage = ({ params, appSession }: ContentEditPageProps) => {
   });
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalError, setModalError] = useState('');
+  const [isFormSubmitting, setIsFormSubmitting] = useState<boolean>(false);
   const [isPreviewFullScreen, setIsPreviewFullScreen] = useState<boolean>(false);
   const [isEditFullScreen, setIsEditFullScreen] = useState<boolean>(false);
   const [selectedTab, setSelectedTab] = useState(0);
@@ -289,9 +352,13 @@ const ContentEditPage = ({ params, appSession }: ContentEditPageProps) => {
     });
   }, [searchParams, redirect]);
 
-  const onBodyContentUpdate = (value: string) => {
+  const onBodyContentUpdate = useCallback((value: string) => {
     dispatch(updateBodyContent(value));
-  };
+  }, [dispatch]);
+
+  const onUpdateTitle = useCallback((value: string) => {
+    dispatch(updateTitle(value));
+  }, [dispatch]);
 
   const onPreviewFullscreenToggle = () => {
     setIsPreviewFullScreen(prev => !prev);
@@ -300,16 +367,26 @@ const ContentEditPage = ({ params, appSession }: ContentEditPageProps) => {
   const onEditFullscreenToggle = () => {
     setIsEditFullScreen(prev => !prev);
   };
-
-  const handleSubmitWithErrorHandling = async (submitType: string, data: any) => {
+  const handleSubmitWithErrorHandling = useCallback(async (submitType: string, data: CONTENT) => {
+    if (isFormSubmitting) return;
     try {
+      setIsFormSubmitting(true);
       await onManualSubmit(submitType, data);
-      setIsModalOpen(false);
-    } catch (error: any) {
-      setModalError(error?.message || 'An unexpected error occurred');
+    } catch (error) {
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : 'An unexpected error occurred';
+      setModalError(errorMessage);
       setIsModalOpen(true);
+    } finally {
+      setIsFormSubmitting(false);
     }
-  };
+  }, [onManualSubmit, isFormSubmitting]);
+
+  const handleManualCancel = useCallback(() => {
+    onCancelAction();
+    setIsFormSubmitting(false);
+  }, []);
 
   const onContentChange = (values: Partial<typeof content>) => {
     dispatch(updateContentData(values));
@@ -336,6 +413,7 @@ const ContentEditPage = ({ params, appSession }: ContentEditPageProps) => {
       content,
       onContentChange,
       onBodyContentUpdate,
+      onUpdateTitle,
       handleShopifyAI,
       shopName,
       accessToken,
@@ -352,6 +430,7 @@ const ContentEditPage = ({ params, appSession }: ContentEditPageProps) => {
       accessToken, 
       onContentChange, 
       onBodyContentUpdate, 
+      onUpdateTitle,
       handleShopifyAI,
       isEditFullScreen,
       onEditFullscreenToggle
@@ -372,49 +451,6 @@ const ContentEditPage = ({ params, appSession }: ContentEditPageProps) => {
         throw new Error("Unsupported category: " + category);
     }
   };
-
-  const renderButtons = useMemo(() => {
-    if (!content) return null;
-    return (
-      <Box width="100%" paddingBlock="500">
-        {selectedTab === 0 ? (
-          <ButtonGroup gap="loose" fullWidth>
-            <ButtonHandler 
-              id={`PUBLISH_${content?.input?.category}`}
-              text="PUBLISH" 
-              onClickOrType="submit" 
-              submitType={`PUBLISH_${content?.input?.category}`}
-              isDisabled={loading} 
-            />
-            <ButtonHandler 
-              id="CANCEL"
-              onClickOrType={onCancelAction}
-              text="CANCEL"
-            />
-          </ButtonGroup>
-        ) : (
-          <ButtonGroup gap="loose" fullWidth>
-            <Button
-              id="PUBLISH_SEO"
-              variant="primary" 
-              onClick={() => handleSubmitWithErrorHandling(`PUBLISH_${content?.input?.category}`, content)}
-              loading={loading}
-              disabled={loading} 
-            >
-              PUBLISH
-            </Button>
-            <Button
-              id="CANCEL"
-              variant="secondary" 
-              onClick={onCancelAction}
-            >
-              CANCEL
-            </Button>
-          </ButtonGroup>
-        )}
-      </Box>
-    );
-  }, [loading, onCancelAction, content, selectedTab]);
 
   const tabs = [
     {
@@ -449,14 +485,6 @@ const ContentEditPage = ({ params, appSession }: ContentEditPageProps) => {
 
  if (content === undefined) {
     return <ContentDisplaySkeleton />;
-  }
-
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
-      </div>
-    );
   }
 
   if (!content) {
@@ -578,12 +606,12 @@ const ContentEditPage = ({ params, appSession }: ContentEditPageProps) => {
           ) : (
             <>
               <Grid item xs={12} md={6}>
-                <motion.div {...slideAnimation}>
+                <motion.div className="flex flex-col max-h-screen overflow-y-auto" {...slideAnimation}>
                   {generateDisplayForm(content?.input?.category)}
                 </motion.div>
               </Grid>
               <Grid item xs={12} md={6}>
-                <motion.div {...slideAnimation}>
+                <motion.div className="flex flex-col max-h-screen overflow-y-auto" {...slideAnimation}>
                   <ContentRenderedView 
                     content={content} 
                     contentType={content?.input?.category}
@@ -677,7 +705,15 @@ const ContentEditPage = ({ params, appSession }: ContentEditPageProps) => {
                       </AnimatePresence>
                     </Card>
                     <Divider />
-                    {renderButtons}
+                    <RenderButtons
+                      category={content?.category}
+                      content={content}
+                      selectedTab={selectedTab}
+                      isFormSubmitting={isFormSubmitting}
+                      onCancelAction={onCancelAction}
+                      handleSubmitWithErrorHandling={handleSubmitWithErrorHandling}
+                      handleManualCancel={handleManualCancel}
+                    />
                   </Box>
                 </FormProvider>
               </BlockStack>

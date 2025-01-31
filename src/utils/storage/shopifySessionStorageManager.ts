@@ -1,34 +1,20 @@
 import { Session } from '@shopify/shopify-api';
 import { SessionNotFoundError } from './sessionStorageError';
 import { ModelManager } from './aiModelManager';
+import { SubscriptionManager } from '@/utils/billing';
+import { GoogleSessionManager } from './googleSessionStorageManager';
 import { PlanManager } from '../billing';
-import { Prisma, Service, Shop, SubscriptionPlan, SubscriptionStatus } from '@prisma/client';
-import { MathUtils } from '@/utils/utilities/mathUtils';
+import { Prisma, Service, SubscriptionPlan, SubscriptionStatus, WebhookLog } from '@prisma/client';
+import { v4 as uuidv4 } from "uuid";
 import { prisma } from '@/lib/prisma';
 import { DateTime } from 'luxon';
 
 export class ShopifySessionManager {
   private static apiKey = process.env.SHOPIFY_API_KEY || "";
 
-  private static readonly TRANSACTION_TIMEOUT = 20000;
+  private static readonly TRANSACTION_TIMEOUT = 100000;
 
-  private static readonly MAX_WAIT = 5000;
-
-  private static readonly CREDIT_CONVERSION = {
-    [Service.AI_API]: 0.1, 
-    [Service.CRAWL_API]: 1
-  };
-
-  private static readonly TOTAL_CONVERSION_RATE = 1.1;
-
-  private static calculateCreditsForService(service: Service, totalCredits: number): number {
-    const conversionRate = this.CREDIT_CONVERSION[service];
-    if (conversionRate === undefined) {
-      throw new Error(`Service ${service} not found in CREDIT_CONVERSION.`);
-    }
-    const result = (totalCredits * conversionRate) / this.TOTAL_CONVERSION_RATE;
-    return MathUtils.floor(result, 2);
-  }
+  private static readonly MAX_WAIT = 50000;
 
   static async getSessionFromStorage(sessionId: string): Promise<Session> {
     const session = await prisma.shopifySession.findUnique({
@@ -48,8 +34,12 @@ export class ShopifySessionManager {
     }
   }
 
-  static async storeSessionToStorage(session: Session): Promise<{ sessionId: string; email: string } | null> {
+  static async storeSessionToStorage(session: Session): Promise<void> {
     try {
+      if (!session || !session.shop || !session.id) {
+        throw new Error('Invalid session data: Missing required fields');
+      }
+      const now = DateTime.utc().toJSDate();
       const shopifySession = await prisma.shopifySession.upsert({
         where: { id: session.id },
         update: {
@@ -72,19 +62,13 @@ export class ShopifySessionManager {
           apiKey: this.apiKey,
         },
       });
-      const [freePlan, model] = await Promise.all([
-        PlanManager.getPlanByName(SubscriptionPlan.FREE),
-        ModelManager.getLatestModel()
-      ]);
+      const freePlan = await PlanManager.getPlanByName(SubscriptionPlan.FREE);
       if (!freePlan) throw new Error('Free plan not found');
+      const model = await ModelManager.getLatestModel();
       if (!model) throw new Error('Model not found');
-      const aiApiCredits = this.calculateCreditsForService(Service.AI_API, freePlan?.creditAmount);
-      const crawlApiCredits = freePlan?.creditAmount - aiApiCredits;
-      const now = new Date();
-      const startDate = DateTime.now().startOf('day');
-      const endDate = DateTime.now().plus({ months: 1 });
-      let shop;
       let onlineSession: { sessionId: string; email: string } | null = null;
+      let shop;
+      let defaultSubscription;
       const existingShop = await prisma.shop.findUnique({
         where: { name: session.shop },
         include: { 
@@ -104,6 +88,8 @@ export class ShopifySessionManager {
         }
       });
       if (!existingShop) {
+        const startDate = DateTime.utc().startOf('day');
+        const endDate = startDate.plus({ months: 1 });
         shop = await prisma.shop.create({
           data: {
             name: session.shop,
@@ -126,85 +112,7 @@ export class ShopifySessionManager {
             }
           }
         });
-        if (!shop) throw Error("Failed to create new shop")
-        shop = await prisma.shop.create({
-          data: {
-            name: session.shop,
-            sessions: {
-              create: {
-                sessionId: shopifySession.id
-              }
-            }
-          },
-          include: {
-            usages: {
-              include: {
-                serviceUsage: {
-                  include: {
-                    aiUsageDetails: true,
-                    crawlUsageDetails: true
-                  }
-                }
-              }
-            }
-          }
-        });
-        const usage = await prisma.usage.create({
-          data: {
-            shop: { connect: { id: shop.id } },
-            serviceUsage: {
-              create: {
-                aiUsageDetails: {
-                  create: {
-                    service: Service.AI_API,
-                    modelName: model.name,
-                    inputTokensCount: 0,
-                    outputTokensCount: 0,
-                    totalRequests: freePlan?.feature?.aiAPI?.requestLimits ?? 0,
-                    totalRemainingRequests: freePlan?.feature?.aiAPI?.requestLimits ?? 0,
-                    totalRequestsUsed: 0,
-                    requestsPerMinuteLimit: freePlan?.feature?.aiAPI?.RPM ?? 0,
-                    requestsPerDayLimit: freePlan?.feature?.aiAPI?.RPD ?? 0,
-                    remainingRequestsPerMinute: freePlan?.feature?.aiAPI?.RPM ?? 0,
-                    remainingRequestsPerDay: freePlan?.feature?.aiAPI?.RPD ?? 0,
-                    resetTimeForMinuteRequests: now,
-                    resetTimeForDayRequests: now,
-                    tokensConsumedPerMinute: 0,
-                    tokensConsumedPerDay: 0,
-                    totalTokens: freePlan?.feature?.aiAPI?.totalTokens ?? 0,
-                    totalTokensUsed: 0,
-                    totalCredits: aiApiCredits ?? 0,
-                    totalCreditsUsed: 0,
-                    totalRemainingCredits: aiApiCredits ?? 0,
-                    lastTokenUsageUpdateTime: now
-                  }
-                },
-                crawlUsageDetails: {
-                  create: {
-                    service: Service.CRAWL_API,
-                    totalRequests: freePlan?.feature?.crawlAPI?.requestLimits ?? 0,
-                    totalRemainingRequests: freePlan?.feature?.crawlAPI?.requestLimits ?? 0,
-                    totalRequestsUsed: 0,
-                    totalCredits: crawlApiCredits ?? 0,
-                    totalCreditsUsed: 0,
-                    totalRemainingCredits: crawlApiCredits ?? 0,
-                  }
-                }
-              }
-            }
-          }
-        });
-        const subscription = await prisma.subscription.create({
-          data: {
-            shop: { connect: { id: shop.id } },
-            plan: { connect: { id: freePlan.id } },
-            usage: { connect: { id: usage.id } },
-            status: SubscriptionStatus.ACTIVE,
-            startDate: startDate.toJSDate(),
-            endDate: endDate.toJSDate(),
-            creditBalance: freePlan?.creditAmount ?? 0
-          }
-        });
+        defaultSubscription = await SubscriptionManager.createDefaultSubscription(shop.id, session.shop);
       } else {
         shop = await prisma.shop.update({
           where: { name: session.shop },
@@ -237,63 +145,8 @@ export class ShopifySessionManager {
             }
           }
         });
-        if (!shop?.usages || shop?.usages.length === 0) {
-          const usage = await prisma.usage.create({
-            data: {
-              shop: { connect: { id: shop.id } },
-              serviceUsage: {
-                create: {
-                  aiUsageDetails: {
-                    create: {
-                      service: Service.AI_API,
-                      modelName: model.name,
-                      inputTokensCount: 0,
-                      outputTokensCount: 0,
-                      totalRequests: freePlan?.feature?.aiAPI?.requestLimits ?? 0,
-                      totalRemainingRequests: freePlan?.feature?.aiAPI?.requestLimits ?? 0,
-                      totalRequestsUsed: 0,
-                      requestsPerMinuteLimit: freePlan?.feature?.aiAPI?.RPM ?? 0,
-                      requestsPerDayLimit: freePlan?.feature?.aiAPI?.RPD ?? 0,
-                      remainingRequestsPerMinute: freePlan?.feature?.aiAPI?.RPM ?? 0,
-                      remainingRequestsPerDay: freePlan?.feature?.aiAPI?.RPD ?? 0,
-                      resetTimeForMinuteRequests: now,
-                      resetTimeForDayRequests: now,
-                      tokensConsumedPerMinute: 0,
-                      tokensConsumedPerDay: 0,
-                      totalTokens: freePlan?.feature?.aiAPI?.totalTokens ?? 0,
-                      totalTokensUsed: 0,
-                      totalCredits: aiApiCredits ?? 0,
-                      totalCreditsUsed: 0,
-                      totalRemainingCredits: aiApiCredits ?? 0,
-                      lastTokenUsageUpdateTime: now
-                    }
-                  },
-                  crawlUsageDetails: {
-                    create: {
-                      service: Service.CRAWL_API,
-                      totalRequests: freePlan?.feature?.crawlAPI?.requestLimits ?? 0,
-                      totalRemainingRequests: freePlan?.feature?.crawlAPI?.requestLimits ?? 0,
-                      totalRequestsUsed: 0,
-                      totalCredits: crawlApiCredits ?? 0,
-                      totalCreditsUsed: 0,
-                      totalRemainingCredits: crawlApiCredits ?? 0,
-                    }
-                  }
-                }
-              }
-            }
-          });
-          const subscription = await prisma.subscription.create({
-            data: {
-              shop: { connect: { id: shop.id } },
-              plan: { connect: { id: freePlan.id } },
-              usage: { connect: { id: usage.id } },
-              status: SubscriptionStatus.ACTIVE,
-              startDate: startDate.toJSDate(),
-              endDate: endDate.toJSDate(),
-              creditBalance: freePlan?.creditAmount ?? 0
-            }
-          });
+        if (!shop?.usages?.length || !shop?.subscriptions?.length) {
+          defaultSubscription = await SubscriptionManager.createDefaultSubscription(shop.id, session.shop);
         }
       }
       if (session.onlineAccessInfo) {
@@ -338,75 +191,72 @@ export class ShopifySessionManager {
           sessionId: onlineAccessInfo.sessionId,
           email: associatedUser.email
         };
-        if (shop) {
-          await prisma.shop.update({
-            where: { id: shop.id },
+        await prisma.shop.update({
+          where: { id: shop.id },
+          data: {
+            associatedUsers: {
+              connect: [{ id: associatedUser.id }]
+            }
+          }
+        });
+        if (defaultSubscription && !defaultSubscription?.associatedUsers?.length) {
+          await prisma.subscription.update({
+            where: { 
+              id: defaultSubscription.id 
+            },
             data: {
               associatedUsers: {
-                connect: [{ id: associatedUser.id }]
+                create: [{
+                  associatedUserId: associatedUser.id,
+                }]
               }
             }
           });
-          if (associatedUser.userId) {
-            const shopUsages = await prisma.usage.findMany({
-              where: {
-                shopId: shop.id,
-                associatedUsers: {
-                  none: {
-                    associatedUserId: BigInt(associatedUser.userId)
-                  }
-                }
-              },
-              include: {
-                subscription: true,
-                creditPurchase: {
-                  include: { creditPackage: true }
-                },
-                associatedUsers: {
-                  include: {
-                    associatedUser: true
-                  }
-                }
+        }
+        for (const usage of shop.usages) {
+          const associatedUserConnection = usage.associatedUsers.find(
+            au => au.associatedUserId === associatedUser.userId
+          );
+          if (!associatedUserConnection) {
+            await prisma.associatedUserToUsage.create({
+              data: {
+                associatedUserId: associatedUser.userId,
+                usageId: usage.id
               }
             });
-            await Promise.all(
-              shopUsages.map(usage => 
-                prisma.associatedUserToUsage.create({
-                  data: {
-                    associatedUserId: BigInt(associatedUser.userId),
-                    usageId: usage.id
-                  }
-                })
-              )
-            );
           }
         }
-        const completedUninstallEvent = await prisma.webhookLog.findFirst({
+      }
+      try {
+        const completedUninstallEvent = await prismaClient.webhookLog.findFirst({
           where: {
-            shopId: session.shop,
+            shopName: session.shop,
             topic: 'APP_UNINSTALLED_COMPLETED',
           },
           orderBy: {
             createdAt: 'desc'
           }
         });
+
         if (!completedUninstallEvent) {
-          await prisma.webhookLog.create({
+          await prismaClient.webhookLog.create({
             data: {
               topic: 'APP_UNINSTALLED_COMPLETED',
-              shopId: session.shop,
+              shopName: session.shop,
               payload: {
                 status: "COMPLETED",
-                completedAt: new Date()
+                completedAt: now
               }
             }
           });
         }
+      } catch (error) {
+        console.error('Error handling uninstall webhook log:', error);
       }
       return onlineSession;
     } catch (error) {
       console.error('Error in storeSessionToStorage:', error);
-      return null;
+      throw error;
     }
   }
 
@@ -469,6 +319,25 @@ export class ShopifySessionManager {
     }
   }
 
+  static async getSessionFromStorageByAccessToken(accessToken: string): Promise<Session | null> {
+    try {
+      const session = await prisma.shopifySession.findFirst({
+        where: {
+          accessToken,
+          isOnline: false,
+        }
+      });
+      if (session) {
+        return this.generateShopifySessionFromDB(session);
+      }
+      console.log(`No active session found for access token: ${accessToken}`);
+      return null;
+    } catch (error) {
+      console.error('Error fetching session:', error);
+      throw new Error(`Failed to fetch session for access token: ${accessToken}`);
+    }
+  }
+
   static async deleteSessionFromStorage(sessionId: string): Promise<void> {
     try {
       await prisma.shopifySession.delete({
@@ -512,7 +381,7 @@ export class ShopifySessionManager {
           include: {
             associatedUser: true
           }
-        }
+        },
       }
     });
   }
@@ -555,45 +424,81 @@ export class ShopifySessionManager {
     }
   }
   
-   static async findShopByName(name: string) {
-    return prisma.shop.findUnique({
-      where: { 
-        name 
-      },
-      include: {
-        sessions: {
-          include: {
-            session: true
-          }
+  static async removeGoogleUserFromShop(shopId: string, googleUserId: string): Promise<void> {
+    await prisma.shopToUser.delete({
+      where: {
+        shopId_userId: {
+          shopId: shopId,
+          userId: googleUserId
+        }
+      }
+    });
+  }
+
+  static async findShopByName(name: string) {
+    return prisma.$transaction(async (tx) => {
+      return tx.shop.findUnique({
+        where: { 
+          name 
         },
-        usages: {
-          include: {
-            associatedUsers: {
-              include: {
-                associatedUser: true
-              }
-            },
-            serviceUsage: {
-              include: {
-                aiUsageDetails: true,
-                crawlUsageDetails: true
+        include: {
+          sessions: {
+            include: {
+              session: true
+            }
+          },
+          usages: {
+            include: {
+              associatedUsers: {
+                include: {
+                  associatedUser: true
+                }
+              },
+              serviceUsage: {
+                include: {
+                  aiUsageDetails: true,
+                  crawlUsageDetails: true
+                }
               }
             }
-          }
-        },
-        contents: true,
-        associatedUsers: true,
-        subscriptions: {
-          include: {
-            payments: true,
-            plan: {
-              include: {
-                feature: true
+          },
+          contents: true,
+          associatedUsers: true,
+          creditPurchases: {
+            include: {
+              billingEvents: true,
+              payment: true,
+              usage: true,
+              associatedUsers: true
+            }
+          },
+          notifications: true,
+          promotions: true,
+          discounts: true,
+          payments: true,
+          subscriptions: {
+            include: {
+              billingEvents: true,
+              payments: {
+                include: {
+                  billingEvents: true,
+                },
+              },
+              usage: true,
+              associatedUsers: true,
+              plan: {
+                include: {
+                  feature: true
+                }
               }
             }
           }
         }
-      }
+      });
+    }, {
+      maxWait: this.MAX_WAIT,
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable, 
+      timeout: this.TRANSACTION_TIMEOUT
     });
   }
 
@@ -620,7 +525,7 @@ export class ShopifySessionManager {
     const associatedUsers = currentSessions
       .map(session => session.onlineAccessInfo?.associatedUser)
       .filter(user => user !== null && user !== undefined);
-    return associatedUsers;
+    return associatedUsers || [];
   }
 
   static async findSubscriptionByShop(shopId: string) {
@@ -666,11 +571,6 @@ export class ShopifySessionManager {
               }
             }
           },
-          googleUsers: {
-            include: {
-              googleUser: true
-            }
-          },
           usageRelation: {
             include: {
               usage: {
@@ -705,25 +605,6 @@ export class ShopifySessionManager {
         return;
       }
       await prisma.$transaction(async (tx) => {
-        if (shopifyShop.subscriptions?.length > 0) {
-          for (const subscription of shopifyShop.subscriptions) {
-            if (subscription.payments?.length > 0) {
-              await tx.payment.deleteMany({
-                where: { subscriptionId: subscription.id }
-              });
-            }
-          }
-          await tx.subscription.deleteMany({
-            where: { shopId: shopifyShop.id }
-          });
-        }
-        if (shopifyShop?.creditPurchases?.length > 0) {
-          for (const purchases of shopifyShop?.creditPurchases) {
-            await tx.creditPurchases.deleteMany({
-              where: { shopId: shopifyShop.id }
-            });
-          }
-        }
         if (shopifyShop.usages?.length > 0) {
           const serviceUsages = await tx.serviceUsage.findMany({
             where: { 
@@ -752,11 +633,6 @@ export class ShopifySessionManager {
             where: { shopId: shopifyShop.id }
           });
         }
-        if (shopifyShop.products?.length > 0) {
-          await tx.product.deleteMany({
-            where: { shopId: shopifyShop.id }
-          });
-        }
         if (shopifyShop.sessions?.length > 0) {
           await tx.session.deleteMany({
             where: { shopId: shopifyShop.id }
@@ -768,53 +644,6 @@ export class ShopifySessionManager {
         timeout: this.TRANSACTION_TIMEOUT
       });      
       await prisma.$transaction(async (tx) => {
-        if (shopifyShop.users?.length > 0) {
-          const googleUsers = await tx.googleUser.findMany({
-            where: {
-              shops: {
-                some: { shopId: shopifyShop.id }
-              }
-            },
-            include: {
-              sessions: true
-            }
-          });
-          if (googleUsers.length > 0) {
-            await tx.googleUser.deleteMany({
-              where: {
-                id: { in: googleUsers.map(user => user.id) }
-              }
-            });
-          }
-        }
-      }, {
-        timeout: this.TRANSACTION_TIMEOUT,
-        maxWait: this.MAX_WAIT,
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable
-      });
-      await prisma.$transaction(async (tx) => {
-        if (shopifyShop.associatedUsers?.length > 0) {
-          await tx.associatedUserToGoogleUser.deleteMany({
-            where: {
-              associatedUserId: { 
-                in: shopifyShop.associatedUsers.map(user => user.userId) 
-              }
-            }
-          });
-          await tx.associatedUser.deleteMany({
-            where: { shopId: shopifyShop.id }
-          });
-        }
-      }, {
-        timeout: this.TRANSACTION_TIMEOUT,
-        maxWait: this.MAX_WAIT,
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable
-      });
-      
-      await prisma.$transaction(async (tx) => {
-        await tx.webhookLog.deleteMany({
-          where: { shopId: shopDomain }
-        });
         const shopStillExists = await tx.shop.findUnique({
           where: { id: shopifyShop.id },
           select: { id: true }
@@ -848,7 +677,7 @@ export class ShopifySessionManager {
     try {
       const deletedLogs = await prisma.webhookLog.deleteMany({
         where: {
-          shopId: shopDomain, 
+          shopName: shopDomain, 
         },
       });
       return deletedLogs;
@@ -872,4 +701,5 @@ export class ShopifySessionManager {
     return shopifySessions.map(session => this.generateShopifySessionFromDB(session));
   }
 }
+
 

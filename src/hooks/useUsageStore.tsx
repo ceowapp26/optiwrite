@@ -9,9 +9,12 @@ import {
   checkAndManageCycleAction,
   resetUsageCountsAction,
   findShopByNameAction,
+  handleUsageNotificationAction
 } from '@/actions/usage';
 import { countTokens } from '@/utils/ai';
 import { Redirect } from '@shopify/app-bridge/actions';
+import { useAppDispatch, useAppSelector } from "@/hooks/useLocalStore";
+import { storeSession, selectSession } from "@/stores/features/authSlice";
 import { AppBridgeState, ClientApplication } from '@shopify/app-bridge';
 import { Service, SubscriptionStatus, ModelName } from '@prisma/client';
 import { eventEmitter } from '@/helpers/eventEmitter';
@@ -53,9 +56,9 @@ interface UsageStore {
       [Service.CRAWL_API]?: ServiceState;
     };
     isApproachingLimit: boolean;
-    cycleStart: Date;
-    cycleEnd: Date;
-    daysUntilExpiration: number;
+    cycleStart?: Date;
+    cycleEnd?: Date;
+    daysUntilExpiration?: number;
   };
   creditPackages: {
     active: Array<{
@@ -165,8 +168,8 @@ export const useUsageStore = create<UsageStore>((set, get) => ({
     return get().subscription?.serviceUsage[Service.AI_API]?.rateLimit;
   },
 
-  setShopDetails: async (shopName: string, userId?: string) => {
-    set({ shopName, userId });
+  setShopDetails: async (shopName: string, userId?: string, email: string) => {
+    set({ shopName, userId, email });
     await get().refreshUsage();
   },
 
@@ -183,13 +186,28 @@ export const useUsageStore = create<UsageStore>((set, get) => ({
     resetTimeForDayRequests: number,
     app: ClientApplication<AppBridgeState>
   ) => {
-    const { shopName, userId, aiApi } = get();
+    const { 
+      shopName, 
+      userId, 
+      email, 
+      subscription, 
+      creditPackages, 
+      totalUsage, 
+      serviceDetails, 
+      aiApi 
+    } = get();
     if (!shopName) throw new Error('Shop ID not set');
     try {
       set({ isLoading: true, error: null });
       await updateUsageAction(
         shopName,
         Service.AI_API,
+        {
+          subscription,
+          creditPackages,
+          totalUsage,
+          serviceDetails
+        },
         {
           aiDetails: {
             modelName,
@@ -204,7 +222,8 @@ export const useUsageStore = create<UsageStore>((set, get) => ({
             resetTimeForDayRequests
           }
         },
-        userId
+        userId,
+        email
       );
       await get().refreshUsage();
       eventEmitter.publish('aiUsageUpdated', shopName);
@@ -239,7 +258,16 @@ export const useUsageStore = create<UsageStore>((set, get) => ({
   },
 
   updateCrawlUsage: async (calls: number = 1, app: ClientApplication<AppBridgeState>) => {
-    const { shopName, userId } = get();
+    const { 
+      shopName, 
+      userId, 
+      email, 
+      subscription, 
+      creditPackages, 
+      totalUsage, 
+      serviceDetails, 
+      aiApi 
+    } = get();
     if (!shopName) throw new Error('Shop ID not set');
     try {
       set({ isLoading: true, error: null });
@@ -247,11 +275,18 @@ export const useUsageStore = create<UsageStore>((set, get) => ({
         shopName,
         Service.CRAWL_API,
         {
+          subscription,
+          creditPackages,
+          totalUsage,
+          serviceDetails
+        },
+        {
           crawlDetails: {
             totalRequests: calls
           }
         },
-        userId
+        userId,
+        email
       );
       await get().refreshUsage();
       eventEmitter.publish('crawlUsageUpdated', shopName);
@@ -381,40 +416,21 @@ export const useUsageStore = create<UsageStore>((set, get) => ({
   },
 
   refreshUsage: async () => {
-    const { shopName, userId } = get();
+    const { shopName, userId, email } = get();
     if (!shopName) return;
     try {
       set({ isLoading: true, error: null });
-      const shop = await findShopByNameAction(shopName);
-      if (!shop) {
-        throw new Error("No active shop found");
-      }
-      const subscription = await getSubscriptionDetailsAction(shopName);
-      if (!subscription) {
-        throw new Error("No active subscription found!");
-      }
-      if (!shop.usages || shop.usages.length === 0) {
-        await resetUsageCountsAction(shopName);
-      }
-      const usageState = await getUsageStateAction(shopName);
+      const usageState = await getUsageStateAction(shopName, email);
       if (!usageState) {
         throw new Error('Failed to get usage state after reset');
       }
-      const cycleStatus = await checkAndManageCycleAction(shopName);
-      await handleCycleTransitionAction(shopName);
       set((state) => ({
         ...state,
-        subscription: {
-          ...usageState.subscription,
-          cycleStart: cycleStatus.currentCycleStart,
-          cycleEnd: cycleStatus.currentCycleEnd,
-          daysUntilExpiration: cycleStatus.daysUntilExpiration
-        },
-        creditPackages: usageState.creditPackages,
-        totalUsage: usageState.totalUsage,
-        serviceDetails: usageState.serviceDetails
+        subscription: usageState?.subscription,
+        creditPackages: usageState?.creditPackages,
+        totalUsage: usageState?.totalUsage,
+        serviceDetails: usageState?.serviceDetails
       }));
-
     } catch (error) {
       set({ error: error as Error });
     } finally {
@@ -422,3 +438,5 @@ export const useUsageStore = create<UsageStore>((set, get) => ({
     }
   }
 }));
+
+ 

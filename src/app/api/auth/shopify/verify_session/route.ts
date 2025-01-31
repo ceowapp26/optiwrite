@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 
 export const dynamic = 'force-dynamic'
 
+export const maxDuration = 60;
+
 export type APIResponse<DataType> = {
   status: "success" | "error";
   data?: DataType;
